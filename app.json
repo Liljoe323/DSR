@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "DSR",
+    "slug": "DSR",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "dsr",
+    "extra": {
+      "supabase": {
+        "redirectUrl": "dsr://auth/callback",
+        "url": "https://mozaczdffhifbqqcgaws.supabase.co",
+        "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vemFjemRmZmhpZmJxcWNnYXdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3MjQ1MDIsImV4cCI6MjA2NDMwMDUwMn0.vew4V_GfthSxO5iYrizEivUHjqnSQ0v9pMi0rDngrWs"
+      },
+      "router": {},
+      "eas": {
+        "projectId": "6e684fb4-ee1d-4a1c-9743-3b00a76cde87"
+      }
+    },
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.liljoe323.DSR",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.liljoe323.DSR"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
