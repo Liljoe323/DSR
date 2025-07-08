@@ -1,8 +1,16 @@
 // app/technician/Assignments.tsx
-import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function Assignments() {
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -26,35 +34,47 @@ export default function Assignments() {
         return;
       }
 
-      setUserId(session.user.id);
+      const techId = session.user.id;
+      setUserId(techId);
 
       const { data, error: fetchError } = await supabase
         .from('technician_assignments')
-        .select(`
-          assigned_at,
-          completed,
-          service_requests (
-            id,
-            title,
-            description,
-            company,
-            contact,
-            created_at
-          )
-        `)
-        .eq('technician_id', session.user.id)
+        .select(
+          `assigned_at,
+           completed,
+           service_requests (
+             id,title,description,company,contact,created_at
+           ),
+           emergency_service_requests (
+             id,title,description,company,contact,created_at
+           )`
+        )
+        .eq('technician_id', techId)
         .eq('completed', false)
         .order('assigned_at', { ascending: false });
 
       if (fetchError) {
-        setError('Failed to load assignments.');
         console.error(fetchError);
+        setError('Failed to load assignments.');
       } else {
-        const flattened = (data || []).map((record) => ({
-          ...record.service_requests,
-          assigned_at: record.assigned_at,
-        }));
-        setAssignments(flattened);
+        // flatten both types
+        const flat = (data || []).map((rec: any) => {
+          if (rec.service_requests) {
+            return {
+              ...rec.service_requests,
+              assigned_at: rec.assigned_at,
+              request_type: 'service',
+            };
+          } else if (rec.emergency_service_requests) {
+            return {
+              ...rec.emergency_service_requests,
+              assigned_at: rec.assigned_at,
+              request_type: 'emergency',
+            };
+          }
+          return null;
+        }).filter(Boolean);
+        setAssignments(flat as any[]);
       }
 
       setLoading(false);
@@ -63,25 +83,33 @@ export default function Assignments() {
     fetchAssignments();
   }, []);
 
-  const markAsComplete = async (requestId: string) => {
+  const markAsComplete = async (request: any) => {
     if (!userId) return;
+
+    // build match object depending on type
+    const matchObj: any = { technician_id: userId };
+    if (request.request_type === 'service') {
+      matchObj.service_request_id = request.id;
+    } else {
+      matchObj.emergency_service_request_id = request.id;
+    }
 
     const { error } = await supabase
       .from('technician_assignments')
       .update({ completed: true })
-      .match({ service_request_id: requestId, technician_id: userId });
+      .match(matchObj);
 
     if (error) {
       console.error('❌ Mark complete error:', error);
       Alert.alert('Error', 'Failed to mark assignment as complete.');
     } else {
-      setAssignments(assignments.filter((a) => a.id !== requestId));
+      setAssignments(prev => prev.filter(a => a.id !== request.id));
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Assigned Service Calls</Text>
+      <Text style={styles.header}>Assigned Calls</Text>
 
       {loading ? (
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -90,9 +118,9 @@ export default function Assignments() {
       ) : assignments.length === 0 ? (
         <Text style={styles.empty}>No active assignments found.</Text>
       ) : (
-        <ScrollView style={styles.scroll}>
-          {assignments.map((assignment, index) => (
-            <View key={assignment.id || index} style={styles.card}>
+        <ScrollView>
+          {assignments.map((assignment, idx) => (
+            <View key={assignment.id || idx} style={styles.card}>
               <Text style={styles.title}>{assignment.title}</Text>
               <Text style={styles.description}>{assignment.description}</Text>
               <Text style={styles.meta}>Company: {assignment.company}</Text>
@@ -103,8 +131,12 @@ export default function Assignments() {
               <Text style={styles.meta}>
                 Assigned: {new Date(assignment.assigned_at).toLocaleString()}
               </Text>
-              <TouchableOpacity onPress={() => markAsComplete(assignment.id)}>
-                <Text style={styles.completeButton}>✔️ Mark Complete</Text>
+
+              <TouchableOpacity
+                onPress={() => markAsComplete(assignment)}
+                style={styles.completeButton}
+              >
+                <Text style={styles.completeText}>✔️ Mark Complete</Text>
               </TouchableOpacity>
             </View>
           ))}
@@ -126,9 +158,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 16,
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   card: {
     backgroundColor: theme.colors.card,
     borderRadius: 12,
@@ -140,35 +170,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.primary,
-    marginBottom: 6,
-  },
-  description: {
-    fontSize: 14,
-    color: theme.colors.text,
-    marginBottom: 8,
-  },
-  meta: {
-    fontSize: 12,
-    color: theme.colors.muted,
-  },
-  error: {
-    color: theme.colors.error,
-    fontSize: 16,
-  },
-  empty: {
-    fontSize: 16,
-    color: theme.colors.muted,
-    textAlign: 'center',
-    marginTop: 32,
-  },
-  completeButton: {
-    marginTop: 10,
-    color: 'green',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
+  title: { fontSize: 18, fontWeight: '600', color: theme.colors.primary, marginBottom: 6 },
+  description: { fontSize: 14, color: theme.colors.text, marginBottom: 8 },
+  meta: { fontSize: 12, color: theme.colors.muted },
+  completeButton: { marginTop: 10, padding: 8, backgroundColor: '#e0ffe0', borderRadius: 6 },
+  completeText: { color: 'green', fontWeight: 'bold', fontSize: 14, textAlign: 'center' },
+  error: { color: theme.colors.error, fontSize: 16, textAlign: 'center' },
+  empty: { fontSize: 16, color: theme.colors.muted, textAlign: 'center', marginTop: 32 },
 });

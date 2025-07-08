@@ -8,11 +8,13 @@ import {
   StyleSheet,
   Text,
   View,
+  TouchableOpacity,
 } from 'react-native';
 import DropDownPicker from 'react-native-dropdown-picker';
 
 export default function ManagerDashboard() {
   const [serviceRequests, setServiceRequests] = useState<any[]>([]);
+  const [emergencyRequests, setEmergencyRequests] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<{ [key: string]: any[] }>({});
   const [loading, setLoading] = useState(true);
@@ -20,14 +22,14 @@ export default function ManagerDashboard() {
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [selectedTechs, setSelectedTechs] = useState<{ [key: string]: string | null }>({});
 
+  // Fetch requests, techs, and assignments
   const fetchData = async () => {
     setLoading(true);
-
     const [
       { data: serviceData, error: serviceError },
       { data: emergencyData, error: emergencyError },
       { data: techData, error: techError },
-      { data: assignmentData, error: assignError }
+      { data: assignData, error: assignError }
     ] = await Promise.all([
       supabase.from('service_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('emergency_service_requests').select('*').order('created_at', { ascending: false }),
@@ -35,6 +37,7 @@ export default function ManagerDashboard() {
       supabase.from('technician_assignments').select(`
         technician_id,
         service_request_id,
+        emergency_service_request_id,
         profiles:profiles!technician_assignments_technician_id_fkey (
           id, full_name
         )
@@ -47,17 +50,19 @@ export default function ManagerDashboard() {
       return;
     }
 
+    // Combine and mark type
     const combinedRequests = [
-      ...(serviceData || []).map((req) => ({ ...req, request_type: 'standard' })),
-      ...(emergencyData || []).map((req) => ({ ...req, request_type: 'emergency' })),
+      ...(serviceData || []).map(req => ({ ...req, request_type: 'service' })),
+      ...(emergencyData || []).map(req => ({ ...req, request_type: 'emergency' })),
     ];
 
+    // Group assignments by request id
     const grouped: { [key: string]: any[] } = {};
-    for (const assign of assignmentData || []) {
-      const reqId = assign.service_request_id.toString();
-      if (!grouped[reqId]) grouped[reqId] = [];
-      grouped[reqId].push(assign.profiles);
-    }
+    (assignData || []).forEach(a => {
+      const key = a.service_request_id ?? a.emergency_service_request_id;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(a.profiles);
+    });
 
     setServiceRequests(combinedRequests);
     setTechnicians(techData || []);
@@ -69,63 +74,67 @@ export default function ManagerDashboard() {
     fetchData();
   }, []);
 
-  const assignTech = async (requestId: string, technicianId: string) => {
+  // Assign tech helper without ON CONFLICT
+  const assignTech = async (
+    requestId: string,
+    technicianId: string,
+    requestType: 'service' | 'emergency'
+  ) => {
     setAssigning(requestId);
+    const payload: any = { technician_id: technicianId };
+    if (requestType === 'service') payload.service_request_id = requestId;
+    else payload.emergency_service_request_id = requestId;
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('technician_assignments')
-      .upsert(
-        [{ service_request_id: requestId, technician_id: technicianId }],
-        { onConflict: ['service_request_id', 'technician_id'] }
-      );
+      .insert([payload]);
 
-    if (error) {
+    if (error && error.code !== '23505') {
+      // ignore unique violation, alert others
       Alert.alert('Error', error.message);
-    } else {
-      Alert.alert('Success', 'Technician assigned.');
-      await fetchData();
     }
-
+    await fetchData();
     setAssigning(null);
   };
 
-  const unassignTech = async (requestId: string, technicianId: string) => {
+  // Unassign helper remains same
+  const unassignTech = async (
+    requestId: string,
+    technicianId: string,
+    requestType: 'service' | 'emergency'
+  ) => {
+    const matchObj: any = { technician_id: technicianId };
+    if (requestType === 'service') matchObj.service_request_id = requestId;
+    else matchObj.emergency_service_request_id = requestId;
+
     const { error } = await supabase
       .from('technician_assignments')
       .delete()
-      .match({ service_request_id: requestId, technician_id: technicianId });
+      .match(matchObj);
 
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else {
-      await fetchData();
-    }
+    if (error) Alert.alert('Error', error.message);
+    else await fetchData();
   };
 
-  const renderDropdown = (requestId: string) => {
-    const requestKey = requestId.toString();
-    const alreadyAssigned = assignments[requestKey] || [];
-    const availableTechs = technicians.filter(
-      (tech) => !alreadyAssigned.some((t) => t.id === tech.id)
-    );
-
-    const items = availableTechs.map((tech) => ({
-      label: tech.full_name,
-      value: tech.id,
-    }));
+  // Render dropdown with branching
+  const renderDropdown = (req: any) => {
+    const requestKey = req.id.toString();
+    const already = assignments[requestKey] || [];
+    const available = technicians.filter(t => !already.some(a => a.id === t.id));
+    const items = available.map(t => ({ label: t.full_name, value: t.id }));
 
     return (
       <DropDownPicker
         open={openDropdowns[requestKey] || false}
-        value={selectedTechs[requestKey] || null}
+        value={selectedTechs[requestKey]}
         items={items}
-        setOpen={(open) => setOpenDropdowns((prev) => ({ ...prev, [requestKey]: open }))}
-        setValue={(callback) => {
-          const value = callback(selectedTechs[requestKey] || null);
-          if (value) {
-            assignTech(requestKey, value);
-            setSelectedTechs((prev) => ({ ...prev, [requestKey]: null }));
-            setOpenDropdowns((prev) => ({ ...prev, [requestKey]: false }));
+        setOpen={o => setOpenDropdowns(prev => ({ ...prev, [requestKey]: o }))}
+        setValue={val => {
+          const techId = val(selectedTechs[requestKey] || null);
+          if (techId) {
+            assignTech(requestKey, techId, req.request_type);
+            setSelectedTechs(p => ({ ...p, [requestKey]: null }));
+            setOpenDropdowns(p => ({ ...p, [requestKey]: false }));
           }
         }}
         placeholder="Select technician..."
@@ -137,9 +146,10 @@ export default function ManagerDashboard() {
     );
   };
 
-  const assignedIds = new Set(Object.keys(assignments).map((id) => id.toString()));
-  const unassigned = serviceRequests.filter((req) => !assignedIds.has(req.id.toString()));
-  const assigned = serviceRequests.filter((req) => assignedIds.has(req.id.toString()));
+  // Separate assigned/unassigned
+  const assignedIds = new Set(Object.keys(assignments));
+  const unassigned = serviceRequests.filter(r => !assignedIds.has(r.id.toString()));
+  const assignedList = serviceRequests.filter(r => assignedIds.has(r.id.toString()));
 
   return (
     <ScrollView style={styles.container}>
@@ -149,51 +159,44 @@ export default function ManagerDashboard() {
       ) : unassigned.length === 0 ? (
         <Text style={styles.empty}>All calls assigned.</Text>
       ) : (
-        unassigned.map((request) => (
+        unassigned.map(req => (
           <View
-            key={request.id}
-            style={[
-              styles.card,
-              request.request_type === 'emergency' && styles.emergencyCard,
-            ]}
+            key={req.id}
+            style={[styles.card, req.request_type === 'emergency' && styles.emergencyCard]}
           >
-            <Text style={styles.title}>{request.title}</Text>
-            <Text style={styles.meta}>{request.company} - {request.contact}</Text>
-            <Text style={styles.meta}>{new Date(request.created_at).toLocaleString()}</Text>
-            {renderDropdown(request.id)}
+            <Text style={styles.title}>{req.title}</Text>
+            <Text style={styles.meta}>{req.company} - {req.contact}</Text>
+            <Text style={styles.meta}>{new Date(req.created_at).toLocaleString()}</Text>
+            {renderDropdown(req)}
           </View>
         ))
       )}
 
       <Text style={styles.header}>Assigned Calls</Text>
-      {assigned.length === 0 ? (
+      {assignedList.length === 0 ? (
         <Text style={styles.empty}>No assigned calls yet.</Text>
       ) : (
-        assigned.map((request) => (
+        assignedList.map(req => (
           <View
-            key={request.id}
-            style={[
-              styles.card,
-              request.request_type === 'emergency' && styles.emergencyCard,
-            ]}
+            key={req.id}
+            style={[styles.card, req.request_type === 'emergency' && styles.emergencyCard]}
           >
-            <Text style={styles.title}>{request.title}</Text>
-            <Text style={styles.meta}>{request.company} - {request.contact}</Text>
-            <Text style={styles.meta}>{new Date(request.created_at).toLocaleString()}</Text>
+            <Text style={styles.title}>{req.title}</Text>
+            <Text style={styles.meta}>{req.company} - {req.contact}</Text>
+            <Text style={styles.meta}>{new Date(req.created_at).toLocaleString()}</Text>
             <Text style={styles.meta}>Assigned Tech(s):</Text>
-            {assignments[request.id.toString()]?.map((tech, idx) => (
+            {assignments[req.id.toString()]?.map((tech, idx) => (
               <View key={idx} style={styles.techRow}>
                 <Text style={styles.metaText}>• {tech.full_name}</Text>
-                <Text
-                  style={styles.unassign}
-                  onPress={() => unassignTech(request.id, tech.id)}
+                <TouchableOpacity
+                  onPress={() => unassignTech(req.id.toString(), tech.id, req.request_type)}
                 >
-                  ✕ Unassign
-                </Text>
+                  <Text style={styles.unassign}>✕ Unassign</Text>
+                </TouchableOpacity>
               </View>
             ))}
             <Text style={styles.assignLabel}>Assign Additional Technician:</Text>
-            {renderDropdown(request.id)}
+            {renderDropdown(req)}
           </View>
         ))
       )}

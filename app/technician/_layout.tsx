@@ -23,8 +23,7 @@ export default function TabLayout() {
         .eq('id', session.user.id)
         .maybeSingle();
 
-      console.log('Fetched profile:', data); // Debug log
-
+      console.log('raw is_manager:', data.is_manager, '(', typeof data.is_manager, ')');
       if (!error && data) {
         setRole(data.role);
         setIsManager(data.is_manager === true);
@@ -35,7 +34,8 @@ export default function TabLayout() {
 
     fetchUserData();
   }, []);
-
+  
+  // Wait until we know the user's role & manager status
   if (role === null || isManager === null) return null;
 
   return (
@@ -66,18 +66,11 @@ export default function TabLayout() {
           fontSize: theme.fontSize.sm,
           fontWeight: '600',
         },
+      
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} color={color} size={22} />
-          ),
-        }}
-      />
-
+      
+      {/* Client-only tabs */}
       {role === 'client' && (
         <>
           <Tabs.Screen
@@ -85,7 +78,11 @@ export default function TabLayout() {
             options={{
               title: 'Emergency',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'alert-circle' : 'alert-circle-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'alert-circle' : 'alert-circle-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
             }}
           />
@@ -94,7 +91,11 @@ export default function TabLayout() {
             options={{
               title: 'Service',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'construct' : 'construct-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'construct' : 'construct-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
             }}
           />
@@ -103,13 +104,18 @@ export default function TabLayout() {
             options={{
               title: 'Parts',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'cog' : 'cog-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'cog' : 'cog-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
             }}
           />
         </>
       )}
 
+      {/* Technician-only tabs */}
       {role === 'technician' && (
         <>
           <Tabs.Screen
@@ -117,7 +123,11 @@ export default function TabLayout() {
             options={{
               title: 'Dashboard',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'speedometer' : 'speedometer-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'speedometer' : 'speedometer-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
             }}
           />
@@ -126,36 +136,53 @@ export default function TabLayout() {
             options={{
               title: 'Assignments',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'clipboard' : 'clipboard-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'clipboard' : 'clipboard-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
             }}
           />
         </>
       )}
 
-      {isManager === true && (
+      {/* Manager tabs  */}
+      
+      {isManager &&(
         <>
           <Tabs.Screen
-            name="technician/ManagerDashboard"
+            name = 'Manager Dashboard'
             options={{
-              title: 'Manager',
+              title: 'Manager Dashboard',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'briefcase' : 'briefcase-outline'} color={color} size={22} />
-              ),
+                <Ionicons
+                  name={focused ? 'briefcase' : 'briefcase-outline'}
+                  color={color}
+                  size={22}
+                />
+              ), 
+                tabBarItemStyle: { display: isManager ? 'flex' : 'none' },
             }}
           />
           <Tabs.Screen
-            name="technician/ManagerParts"
+            name = 'Manager Parts'
             options={{
               title: 'Parts',
               tabBarIcon: ({ color, focused }) => (
-                <Ionicons name={focused ? 'cube' : 'cube-outline'} color={color} size={22} />
+                <Ionicons
+                  name={focused ? 'cube' : 'cube-outline'}
+                  color={color}
+                  size={22}
+                />
               ),
+                tabBarItemStyle: { display: isManager ? 'flex' : 'none' },
             }}
           />
         </>
       )}
 
+      {/* Always available */}
       <Tabs.Screen
         name="about"
         options={{
