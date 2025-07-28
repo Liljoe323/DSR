@@ -62,7 +62,7 @@ export default function ManagerParts() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={partRequests.length === 0 ? styles.emptyContainer : undefined}
+      contentContainerStyle={[styles.scrollArea, partRequests.length === 0 ? styles.emptyContainer : undefined]}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
@@ -94,6 +94,9 @@ export default function ManagerParts() {
 }
 
 const styles = StyleSheet.create({
+  scrollArea: {
+    paddingBottom: 80
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

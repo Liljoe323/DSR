@@ -1,0 +1,179 @@
+import { supabase } from '@/lib/supabase';
+import theme from '@/styles/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+const HIDDEN_KEY = 'hiddenPLCAlarms';
+
+export default function PLCAlarmsScreen() {
+  const [alarms, setAlarms] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchAlarms = useCallback(async () => {
+    if (!refreshing) setLoading(true);
+
+    let hiddenSet = new Set<string>();
+    try {
+      const json = await AsyncStorage.getItem(HIDDEN_KEY);
+      if (json) JSON.parse(json).forEach((k: string) => hiddenSet.add(k));
+    } catch {}
+
+    const { data, error } = await supabase
+      .from('plc_alarms')
+      .select('*')
+      .order('received_at', { ascending: false });
+
+    if (!error && data) {
+      const visibleAlarms = data.filter(alarm => !hiddenSet.has(`plc:${alarm.id}`));
+      setAlarms(visibleAlarms);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
+  }, [refreshing]);
+
+  useEffect(() => {
+    fetchAlarms();
+
+    const channel = supabase
+      .channel('realtime:plc_alarms')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'plc_alarms' },
+        fetchAlarms
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAlarms]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchAlarms();
+  }, [fetchAlarms]);
+
+  async function hideAlarm(id: number) {
+    const key = `plc:${id}`;
+    try {
+      const json = await AsyncStorage.getItem(HIDDEN_KEY);
+      const arr = json ? JSON.parse(json) : [];
+      if (!arr.includes(key)) {
+        arr.push(key);
+        await AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(arr));
+      }
+    } catch {}
+    fetchAlarms();
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scrollArea}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <Text style={styles.header}>🔔 PLC Alarms</Text>
+
+        {alarms.map((alarm) => (
+          <View key={alarm.id} style={styles.card}>
+            <Text style={styles.title}>{alarm.subject || 'No Subject'}</Text>
+            <Text style={styles.body}>{alarm.body || 'No Body'}</Text>
+            <Text style={styles.meta}>Source: {alarm.source}</Text>
+            <Text style={styles.meta}>Sender: {alarm.sender}</Text>
+            <Text style={styles.meta}>
+              Received: {new Date(alarm.received_at).toLocaleString()}
+            </Text>
+
+            <View style={styles.cardActions}>
+              <TouchableOpacity
+                style={styles.hideButton}
+                onPress={() => hideAlarm(alarm.id)}
+              >
+                <Text style={styles.hideButtonText}>Hide</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+
+        {!loading && alarms.length === 0 && (
+          <Text style={styles.noData}>No PLC alarms found.</Text>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  scrollArea: {
+    padding: 16,
+    paddingBottom: 80,
+  },
+  header: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 16,
+  },
+  card: {
+    backgroundColor: '#2a2a2a',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderColor: '#444',
+    borderWidth: 1,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 6,
+  },
+  body: {
+    fontSize: 14,
+    color: '#ddd',
+    marginBottom: 6,
+  },
+  meta: {
+    fontSize: 12,
+    color: '#aaa',
+    marginTop: 2,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+  },
+  hideButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: theme.colors.error,
+    borderRadius: 6,
+  },
+  hideButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  noData: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 40,
+  },
+});

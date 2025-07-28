@@ -173,6 +173,7 @@ export default function ManagerDashboard() {
   return (
     <ScrollView
       style={styles.container}
+      contentContainerStyle={styles.scrollArea}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.header}>Unassigned Calls</Text>
@@ -235,6 +236,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
     padding: 16,
+  },
+  scrollArea: {
+    paddingBottom: 80,
   },
   header: {
     fontSize: 22,

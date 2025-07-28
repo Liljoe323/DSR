@@ -3,6 +3,8 @@ import theme from '@/styles/theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 
 export default function TabLayout() {
   const [role, setRole] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export default function TabLayout() {
           bottom: 20,
           left: 20,
           right: 20,
-          backgroundColor: theme.colors.primary,
+          backgroundColor: theme.colors.primaryLight,
           borderRadius: theme.borderRadius.full,
           height: 60,
           paddingBottom: 6,
@@ -108,7 +110,7 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'cog' : 'cog-outline'}
                   color={color}
-                  size={22}
+                  size={18}
                 />
               ),
             }}
@@ -116,7 +118,7 @@ export default function TabLayout() {
         </>
       )}
 
-      {role === 'technician' && isManager === true && (
+      {role === 'technician' && (
         <>
           {/* Tech tabs */}
           <Tabs.Screen
@@ -127,7 +129,7 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'speedometer' : 'speedometer-outline'}
                   color={color}
-                  size={22}
+                  size={18}
                 />
               ),
             }}
@@ -140,45 +142,11 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'clipboard' : 'clipboard-outline'}
                   color={color}
-                  size={22}
+                  size={18}
                 />
               ),
             }}
           />
-
-          {/* Manager tabs (only when isManager is true) */}
-          {role === 'technician' && !isManager && (
-            <>
-              <Tabs.Screen
-                name="ManagerDashboard"
-                options={{
-                  href: null,
-                  title: 'Manager Dashboard',
-                  tabBarIcon: ({ color, focused }) => (
-                    <Ionicons
-                      name={focused ? 'briefcase' : 'briefcase-outline'}
-                      color={color}
-                      size={22}
-                    />
-                  ),
-                }}
-              />
-              <Tabs.Screen
-                name="ManagerParts"
-                options={{
-                  href: null,
-                  title: 'Parts',
-                  tabBarIcon: ({ color, focused }) => (
-                    <Ionicons
-                      name={focused ? 'cube' : 'cube-outline'}
-                      color={color}
-                      size={22}
-                    />
-                  ),
-                }}
-              />
-            </>
-          )}
         </>
       )}
 

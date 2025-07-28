@@ -1,3 +1,4 @@
+// app/technician/Dashboard.tsx
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import ImageViewer from '@/components/imageviewer';
 import { supabase } from '@/lib/supabase';
@@ -25,7 +26,6 @@ import theme from '@/styles/theme';
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
 const HIDDEN_KEY = 'hiddenRequests';
 
-// 1. GLOBAL handler so foreground notifications show
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -51,12 +51,10 @@ async function registerForPushNotificationsAsync() {
     return;
   }
 
-  // 2. Get the token
   const tokenData = await Notifications.getExpoPushTokenAsync();
   const token = tokenData.data;
   console.log('Expo Push Token:', token);
 
-  // 3. Persist it in Supabase
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -75,25 +73,6 @@ async function sendLocalNotification(title: string, body: string) {
   });
 }
 
-// Optional client-side helper for sending pushes via Expo API
-export async function sendRemotePush(expoPushToken: string, title: string, body: string) {
-  return fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Accept-encoding': 'gzip, deflate',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      to: expoPushToken,
-      sound: 'default',
-      title,
-      body,
-      data: {},
-    }),
-  });
-}
-
 export default function TechnicianDashboard() {
   const navigation = useNavigation();
   const [serviceRequests, setServiceRequests] = useState<any[]>([]);
@@ -102,11 +81,9 @@ export default function TechnicianDashboard() {
   const [userName, setUserName] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // refs for notification subscriptions
   const notifListener = useRef<any>();
   const responseListener = useRef<any>();
 
@@ -117,14 +94,12 @@ export default function TechnicianDashboard() {
   const fetchRequests = useCallback(async () => {
     if (!refreshing) setLoading(true);
 
-    // load hidden keys
     let hiddenSet = new Set<string>();
     try {
       const json = await AsyncStorage.getItem(HIDDEN_KEY);
       if (json) JSON.parse(json).forEach((k: string) => hiddenSet.add(k));
     } catch {}
 
-    // fetch all three tables
     const [sRes, eRes, pRes] = await Promise.all([
       supabase.from('service_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('emergency_service_requests').select('*').order('created_at', { ascending: false }),
@@ -146,7 +121,6 @@ export default function TechnicianDashboard() {
   }, [refreshing]);
 
   useEffect(() => {
-    // 4. Create Android channel
     if (Platform.OS === 'android') {
       Notifications.setNotificationChannelAsync('default', {
         name: 'default',
@@ -164,37 +138,21 @@ export default function TechnicianDashboard() {
       await sendLocalNotification('New Request', 'A new request has been submitted.');
     };
 
-    // 5. Supabase realtime subscriptions
     const subs = [
       supabase
         .channel('realtime:service_requests')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'service_requests' },
-          notifyAndFetch
-        )
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'service_requests' }, notifyAndFetch)
         .subscribe(),
-
       supabase
         .channel('realtime:emergency_service_requests')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'emergency_service_requests' },
-          notifyAndFetch
-        )
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emergency_service_requests' }, notifyAndFetch)
         .subscribe(),
-
       supabase
         .channel('realtime:parts_requests')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'parts_requests' },
-          notifyAndFetch
-        )
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'parts_requests' }, notifyAndFetch)
         .subscribe(),
     ];
 
-    // 6. Listen to actual push arrivals & user taps
     notifListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Push Received:', notification);
     });
@@ -202,7 +160,6 @@ export default function TechnicianDashboard() {
       console.log('Push Response:', response);
     });
 
-    // fetch user name
     (async () => {
       const {
         data: { session },
@@ -257,18 +214,13 @@ export default function TechnicianDashboard() {
     } catch {}
 
     return (
-      <View
-        key={`${type}:${item.id}`}
-        style={[styles.requestCard, type === 'emergency' && styles.emergencyCard]}
-      >
+      <View key={`${type}:${item.id}`} style={[styles.requestCard, type === 'emergency' && styles.emergencyCard]}>
         <Text style={styles.requestTitle}>{item.title}</Text>
         <Text style={styles.description}>{item.description}</Text>
         <Text style={styles.meta}>Company: {item.company}</Text>
         <Text style={styles.meta}>Name: {item.contact || 'N/A'}</Text>
         <Text style={styles.meta}>Phone: {item.phone_number || 'N/A'}</Text>
-        <Text style={styles.meta}>
-          Submitted: {new Date(item.created_at).toLocaleString()}
-        </Text>
+        <Text style={styles.meta}>Submitted: {new Date(item.created_at).toLocaleString()}</Text>
 
         {imageUrls.length > 0 && (
           <View style={styles.imagePreviewWrapper}>
@@ -283,10 +235,7 @@ export default function TechnicianDashboard() {
         )}
 
         <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={styles.hideButton}
-            onPress={() => hideRequest(item.id, type)}
-          >
+          <TouchableOpacity style={styles.hideButton} onPress={() => hideRequest(item.id, type)}>
             <Text style={styles.hideButtonText}>Remove</Text>
           </TouchableOpacity>
         </View>
@@ -298,20 +247,27 @@ export default function TechnicianDashboard() {
     <SafeAreaView style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollArea}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ImageViewer imgSource={PlaceholderImage} mode="banner" />
 
         <View style={styles.headerRow}>
-          <Text style={styles.name}>{userName}</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('account')}>
-            <Ionicons
-              name="person-circle-outline"
-              size={30}
-              color={theme.colors.textOnPrimary}
-            />
+          <Text style={styles.name}>Welcome back, {userName}!</Text>
+          <TouchableOpacity 
+          style={styles.accountButton}
+          onPress={() => navigation.navigate('account')}>
+            <Ionicons name="person-circle-outline" size={40} color={theme.colors.textOnPrimary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* New PLC Alarms Button */}
+        <View style={styles.plcButtonContainer}>
+          <TouchableOpacity
+            style={styles.plcButton}
+            onPress={() => navigation.navigate('PLCAlarms')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.plcButtonText}>🔔 View PLC Alarms</Text>
           </TouchableOpacity>
         </View>
 
@@ -326,15 +282,8 @@ export default function TechnicianDashboard() {
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="fade">
-        <Pressable
-          style={styles.modalBackground}
-          onPress={() => setModalVisible(false)}
-        >
-          <Image
-            source={{ uri: selectedImage! }}
-            style={styles.fullImage}
-            resizeMode="contain"
-          />
+        <Pressable style={styles.modalBackground} onPress={() => setModalVisible(false)}>
+          <Image source={{ uri: selectedImage! }} style={styles.fullImage} resizeMode="contain" />
         </Pressable>
       </Modal>
     </SafeAreaView>
@@ -343,7 +292,7 @@ export default function TechnicianDashboard() {
 
 const styles = StyleSheet.create({
   container:           { flex: 1, backgroundColor: theme.colors.background },
-  scrollArea:          { paddingBottom: 40 },
+  scrollArea:          { paddingBottom: 80 },
   headerRow:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: theme.spacing.md },
   name:                { fontSize: theme.fontSize.lg, color: theme.colors.textOnPrimary, fontWeight: '600' },
   sectionHeader:       { fontSize: theme.fontSize.lg, fontWeight: '700', color: '#fff', marginTop: 20, marginBottom: 10, paddingHorizontal: 16 },
@@ -359,4 +308,30 @@ const styles = StyleSheet.create({
   hideButtonText:      { color: '#fff', fontWeight: '600' },
   modalBackground:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
   fullImage:           { width: '90%', height: '80%' },
+  plcButtonContainer: {
+  paddingHorizontal: 16,
+  marginTop: 10,
+  marginBottom: 20,
+},
+plcButton: {
+  backgroundColor: theme.colors.primaryLight,
+  paddingVertical: 14,
+  borderRadius: 10,
+  alignItems: 'center',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.3,
+  shadowRadius: 4,
+  elevation: 5,
+},
+plcButtonText: {
+  color: '#fff',
+  fontWeight: 'bold',
+  fontSize: 16,
+},
+accountButton: {
+  backgroundColor: theme.colors.primaryLight, // or theme.colors.card or theme.colors.primary
+  padding: 6,
+  borderRadius: 20, // fully rounded container
+},
 });

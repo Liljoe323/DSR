@@ -133,7 +133,7 @@ export default function Assignments() {
         <Text style={styles.empty}>No active assignments found.</Text>
       ) : (
         <ScrollView
-          contentContainerStyle={{ paddingBottom: 16 }}
+          contentContainerStyle={{ paddingBottom: 80 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }

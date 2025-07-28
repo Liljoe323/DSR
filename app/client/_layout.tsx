@@ -40,7 +40,7 @@ export default function TabLayout() {
           bottom: 20,
           left: 20,
           right: 20,
-          backgroundColor: theme.colors.primary,
+          backgroundColor: theme.colors.primaryLight,
           borderRadius: theme.borderRadius.full,
           height: 60,
           paddingBottom: 6,
@@ -63,7 +63,7 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home-sharp' : 'home-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'home-sharp' : 'home-outline'} color={color} size={18} />
           ),
         }}
       />
@@ -78,7 +78,7 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'alert-circle' : 'alert-circle-outline'}
                   color={color}
-                  size={24}
+                  size={18}
                 />
               ),
             }}
@@ -91,7 +91,7 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'construct' : 'construct-outline'}
                   color={color}
-                  size={24}
+                  size={18}
                 />
               ),
             }}
@@ -104,7 +104,7 @@ export default function TabLayout() {
                 <Ionicons
                   name={focused ? 'cube' : 'cube-outline'}
                   color={color}
-                  size={24}
+                  size={18}
                 />
               ),
             }}
@@ -120,7 +120,7 @@ export default function TabLayout() {
             <Ionicons
               name={focused ? 'information-circle' : 'information-circle-outline'}
               color={color}
-              size={24}
+              size={18}
             />
           ),
         }}

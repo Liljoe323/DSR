@@ -94,7 +94,7 @@ export default function AccountScreen() {
     const updates = {
       id: userId,
       ...profile,
-      phone_number: profile.phone,
+      phone_number: profile.phone_number,
       updated_at: new Date().toISOString(),
     };
 
