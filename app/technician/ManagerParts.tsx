@@ -1,28 +1,31 @@
 // app/technician/ManagerParts.tsx
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
-import { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Pressable,
-  Alert,
 } from 'react-native';
 
 export default function ManagerParts() {
   const [partRequests, setPartRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchParts = async () => {
-    setLoading(true);
+  const fetchParts = useCallback(async () => {
+    // only show full-screen spinner on initial load
+    if (!refreshing) setLoading(true);
 
     const { data, error } = await supabase
       .from('parts_requests')
       .select('*')
-      .eq('cleared_by_manager', false)
+      .eq('taken_care_of', false)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -31,12 +34,22 @@ export default function ManagerParts() {
 
     setPartRequests(data || []);
     setLoading(false);
-  };
+    setRefreshing(false);
+  }, [refreshing]);
+
+  useEffect(() => {
+    fetchParts();
+  }, [fetchParts]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchParts();
+  }, [fetchParts]);
 
   const clearFromView = async (id: string) => {
     const { error } = await supabase
       .from('parts_requests')
-      .update({ cleared_by_manager: true })
+      .update({ taken_care_of: true })
       .eq('id', id);
 
     if (error) {
@@ -46,15 +59,17 @@ export default function ManagerParts() {
     }
   };
 
-  useEffect(() => {
-    fetchParts();
-  }, []);
-
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={partRequests.length === 0 ? styles.emptyContainer : undefined}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       <Text style={styles.header}>Parts Requests</Text>
 
-      {loading ? (
+      {loading && !refreshing ? (
         <ActivityIndicator size="large" color={theme.colors.primary} />
       ) : partRequests.length === 0 ? (
         <Text style={styles.empty}>No parts requests found.</Text>
@@ -69,7 +84,7 @@ export default function ManagerParts() {
               Submitted: {new Date(request.created_at).toLocaleString()}
             </Text>
             <Pressable onPress={() => clearFromView(request.id)}>
-              <Text style={styles.remove}>✕ Remove from view</Text>
+              <Text style={styles.remove}>✕ Taken Care Of</Text>
             </Pressable>
           </View>
         ))
@@ -83,6 +98,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background,
     padding: 16,
+  },
+  emptyContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   header: {
     fontSize: 22,
@@ -111,17 +130,18 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 12,
     color: theme.colors.muted,
-  },
-  empty: {
-    fontSize: 14,
-    color: theme.colors.muted,
-    textAlign: 'center',
-    marginTop: 32,
+    marginBottom: 4,
   },
   remove: {
     marginTop: 10,
     fontSize: 13,
     color: theme.colors.error,
     textDecorationLine: 'underline',
+  },
+  empty: {
+    fontSize: 14,
+    color: theme.colors.muted,
+    textAlign: 'center',
+    marginTop: 32,
   },
 });

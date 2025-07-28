@@ -1,5 +1,6 @@
 // components/AuthModal.tsx
 import { supabase } from '@/lib/supabase';
+import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
@@ -33,7 +34,9 @@ export default function AuthModal({ isVisible, onClose }: Props) {
 
     try {
       if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password },
+          {redirectTo: 'dsr://account'}
+        );
 
         if (error) throw error;
 
@@ -95,7 +98,7 @@ export default function AuthModal({ isVisible, onClose }: Props) {
             {['client', 'technician'].map((r) => (
               <TouchableOpacity
                 key={r}
-                onPress={() => setRole(r as 'client' | 'technician')}
+                onPress={() => setRole(r as 'Customer' | 'Technician')}
                 style={[styles.roleButton, role === r && styles.roleSelected]}
               >
                 <Text style={[styles.roleLabel, role === r && styles.roleLabelSelected]}>

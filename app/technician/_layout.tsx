@@ -1,8 +1,8 @@
+import { supabase } from '@/lib/supabase';
+import theme from '@/styles/theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import theme from '@/styles/theme';
 
 export default function TabLayout() {
   const [role, setRole] = useState<string | null>(null);
@@ -24,9 +24,10 @@ export default function TabLayout() {
         .maybeSingle();
 
       console.log('raw is_manager:', data.is_manager, '(', typeof data.is_manager, ')');
+      
       if (!error && data) {
         setRole(data.role);
-        setIsManager(data.is_manager === true);
+        setIsManager(data.is_manager);
       } else {
         console.warn('Failed to fetch role or manager status:', error?.message);
       }
@@ -34,7 +35,7 @@ export default function TabLayout() {
 
     fetchUserData();
   }, []);
-  
+  console.log(isManager);
   // Wait until we know the user's role & manager status
   if (role === null || isManager === null) return null;
 
@@ -69,7 +70,7 @@ export default function TabLayout() {
       
       }}
     >
-      
+
       {/* Client-only tabs */}
       {role === 'client' && (
         <>
@@ -115,11 +116,11 @@ export default function TabLayout() {
         </>
       )}
 
-      {/* Technician-only tabs */}
-      {role === 'technician' && (
+      {role === 'technician' && isManager === true && (
         <>
+          {/* Tech tabs */}
           <Tabs.Screen
-            name="technician/dashboard"
+            name="Dashboard"
             options={{
               title: 'Dashboard',
               tabBarIcon: ({ color, focused }) => (
@@ -132,7 +133,7 @@ export default function TabLayout() {
             }}
           />
           <Tabs.Screen
-            name="technician/Assignments"
+            name="Assignments"
             options={{
               title: 'Assignments',
               tabBarIcon: ({ color, focused }) => (
@@ -144,45 +145,44 @@ export default function TabLayout() {
               ),
             }}
           />
+
+          {/* Manager tabs (only when isManager is true) */}
+          {role === 'technician' && !isManager && (
+            <>
+              <Tabs.Screen
+                name="ManagerDashboard"
+                options={{
+                  href: null,
+                  title: 'Manager Dashboard',
+                  tabBarIcon: ({ color, focused }) => (
+                    <Ionicons
+                      name={focused ? 'briefcase' : 'briefcase-outline'}
+                      color={color}
+                      size={22}
+                    />
+                  ),
+                }}
+              />
+              <Tabs.Screen
+                name="ManagerParts"
+                options={{
+                  href: null,
+                  title: 'Parts',
+                  tabBarIcon: ({ color, focused }) => (
+                    <Ionicons
+                      name={focused ? 'cube' : 'cube-outline'}
+                      color={color}
+                      size={22}
+                    />
+                  ),
+                }}
+              />
+            </>
+          )}
         </>
       )}
 
-      {/* Manager tabs  */}
-      
-      {isManager &&(
-        <>
-          <Tabs.Screen
-            name = 'Manager Dashboard'
-            options={{
-              title: 'Manager Dashboard',
-              tabBarIcon: ({ color, focused }) => (
-                <Ionicons
-                  name={focused ? 'briefcase' : 'briefcase-outline'}
-                  color={color}
-                  size={22}
-                />
-              ), 
-                tabBarItemStyle: { display: isManager ? 'flex' : 'none' },
-            }}
-          />
-          <Tabs.Screen
-            name = 'Manager Parts'
-            options={{
-              title: 'Parts',
-              tabBarIcon: ({ color, focused }) => (
-                <Ionicons
-                  name={focused ? 'cube' : 'cube-outline'}
-                  color={color}
-                  size={22}
-                />
-              ),
-                tabBarItemStyle: { display: isManager ? 'flex' : 'none' },
-            }}
-          />
-        </>
-      )}
-
-      {/* Always available */}
+      {/* Always show “About” */}
       <Tabs.Screen
         name="about"
         options={{

@@ -1,7 +1,7 @@
 // app/technician/Assignments.tsx
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,83 +10,96 @@ import {
   Text,
   TouchableOpacity,
   View,
+  RefreshControl,
 } from 'react-native';
 
 export default function Assignments() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchAssignments = async () => {
+  const fetchAssignments = useCallback(async () => {
+    // show full-screen spinner only on initial load
+    if (!refreshing) {
       setLoading(true);
-      setError(null);
+    }
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+    setError(null);
 
-      if (sessionError || !session?.user) {
-        setError('Could not load user session.');
-        setLoading(false);
-        return;
-      }
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
 
-      const techId = session.user.id;
-      setUserId(techId);
+    if (sessionError || !session?.user) {
+      setError('Could not load user session.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
 
-      const { data, error: fetchError } = await supabase
-        .from('technician_assignments')
-        .select(
-          `assigned_at,
-           completed,
-           service_requests (
-             id,title,description,company,contact,created_at
-           ),
-           emergency_service_requests (
-             id,title,description,company,contact,created_at
-           )`
-        )
-        .eq('technician_id', techId)
-        .eq('completed', false)
-        .order('assigned_at', { ascending: false });
+    const techId = session.user.id;
+    setUserId(techId);
 
-      if (fetchError) {
-        console.error(fetchError);
-        setError('Failed to load assignments.');
-      } else {
-        // flatten both types
-        const flat = (data || []).map((rec: any) => {
+    const { data, error: fetchError } = await supabase
+      .from('technician_assignments')
+      .select(
+        `assigned_at,
+         completed,
+         service_requests (
+           id,title,description,company,contact,created_at
+         ),
+         emergency_service_requests (
+           id,title,description,company,contact,created_at
+         )`
+      )
+      .eq('technician_id', techId)
+      .eq('completed', false)
+      .order('assigned_at', { ascending: false });
+
+    if (fetchError) {
+      console.error(fetchError);
+      setError('Failed to load assignments.');
+    } else {
+      const flat = (data || [])
+        .map((rec: any) => {
           if (rec.service_requests) {
             return {
               ...rec.service_requests,
               assigned_at: rec.assigned_at,
-              request_type: 'service',
+              request_type: 'service' as const,
             };
           } else if (rec.emergency_service_requests) {
             return {
               ...rec.emergency_service_requests,
               assigned_at: rec.assigned_at,
-              request_type: 'emergency',
+              request_type: 'emergency' as const,
             };
           }
           return null;
-        }).filter(Boolean);
-        setAssignments(flat as any[]);
-      }
+        })
+        .filter(Boolean);
+      setAssignments(flat as any[]);
+    }
 
-      setLoading(false);
-    };
+    setLoading(false);
+    setRefreshing(false);
+  }, [refreshing]);
 
+  useEffect(() => {
     fetchAssignments();
-  }, []);
+  }, [fetchAssignments]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchAssignments();
+  }, [fetchAssignments]);
 
   const markAsComplete = async (request: any) => {
     if (!userId) return;
 
-    // build match object depending on type
     const matchObj: any = { technician_id: userId };
     if (request.request_type === 'service') {
       matchObj.service_request_id = request.id;
@@ -103,6 +116,7 @@ export default function Assignments() {
       console.error('❌ Mark complete error:', error);
       Alert.alert('Error', 'Failed to mark assignment as complete.');
     } else {
+      // remove locally so it disappears immediately
       setAssignments(prev => prev.filter(a => a.id !== request.id));
     }
   };
@@ -111,14 +125,19 @@ export default function Assignments() {
     <View style={styles.container}>
       <Text style={styles.header}>Assigned Calls</Text>
 
-      {loading ? (
+      {loading && !refreshing ? (
         <ActivityIndicator size="large" color={theme.colors.primary} />
       ) : error ? (
         <Text style={styles.error}>{error}</Text>
       ) : assignments.length === 0 ? (
         <Text style={styles.empty}>No active assignments found.</Text>
       ) : (
-        <ScrollView>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 16 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           {assignments.map((assignment, idx) => (
             <View key={assignment.id || idx} style={styles.card}>
               <Text style={styles.title}>{assignment.title}</Text>
@@ -158,7 +177,6 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     marginBottom: 16,
   },
-  scroll: { flex: 1 },
   card: {
     backgroundColor: theme.colors.card,
     borderRadius: 12,
@@ -170,11 +188,43 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  title: { fontSize: 18, fontWeight: '600', color: theme.colors.primary, marginBottom: 6 },
-  description: { fontSize: 14, color: theme.colors.text, marginBottom: 8 },
-  meta: { fontSize: 12, color: theme.colors.muted },
-  completeButton: { marginTop: 10, padding: 8, backgroundColor: '#e0ffe0', borderRadius: 6 },
-  completeText: { color: 'green', fontWeight: 'bold', fontSize: 14, textAlign: 'center' },
-  error: { color: theme.colors.error, fontSize: 16, textAlign: 'center' },
-  empty: { fontSize: 16, color: theme.colors.muted, textAlign: 'center', marginTop: 32 },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.primary,
+    marginBottom: 6,
+  },
+  description: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  meta: {
+    fontSize: 12,
+    color: theme.colors.muted,
+    marginBottom: 4,
+  },
+  completeButton: {
+    marginTop: 10,
+    padding: 8,
+    backgroundColor: '#e0ffe0',
+    borderRadius: 6,
+  },
+  completeText: {
+    color: 'green',
+    fontWeight: 'bold',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  error: {
+    color: theme.colors.error,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  empty: {
+    fontSize: 16,
+    color: theme.colors.muted,
+    textAlign: 'center',
+    marginTop: 32,
+  },
 });
