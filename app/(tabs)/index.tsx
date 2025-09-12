@@ -1,4 +1,3 @@
-// app/index.tsx
 import AuthModal from '@/components/AuthModal';
 import Button from '@/components/Button';
 import { supabase } from '@/lib/supabase';
@@ -20,7 +19,6 @@ import {
 
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
 
-// Configure how notifications are shown when app is foregrounded
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -34,79 +32,79 @@ export default function Index() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Notification state & refs
   const [expoPushToken, setExpoPushToken] = useState<string>('');
   const notificationListener = useRef<any>();
   const responseListener = useRef<any>();
 
   const router = useRouter();
 
-  /** HANDLE DEEP LINKS FOR AUTH CALLBACK **/
+  /** DEEP LINK HANDLER **/
   useEffect(() => {
     const handleUrl = async ({ url }: { url: string }) => {
-      // Let Supabase parse the URL and set the session
       await supabase.auth.getSessionFromUrl({ storeSession: true });
-      // After processing, re-check session/role
       await checkSession();
     };
 
     Linking.addEventListener('url', handleUrl);
-    // Handle cold start
     Linking.getInitialURL().then((url) => {
       if (url) handleUrl({ url });
     });
 
     return () => {
-      //Linking.removeEventListener('url', handleUrl);
+      // Linking.removeEventListener is deprecated, handled automatically
     };
   }, []);
 
   /** SESSION + ROLE CHECK **/
   const checkSession = async () => {
     setLoading(true);
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    const session = sessionData?.session;
-
-    if (!session || sessionError) {
-      setIsLoggedIn(false);
-      setShowAuth(true);
-      setLoading(false);
-      return;
-    }
 
     const { data: userData, error: userError } = await supabase.auth.getUser();
+
     if (userError || !userData?.user?.id) {
+      console.log('No user found – showing auth modal');
       setIsLoggedIn(false);
       setShowAuth(true);
       setLoading(false);
       return;
     }
+
+    const user = userData.user;
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', userData.user.id)
-      .single();
+      .eq('id', user.id)
+      .maybeSingle();
 
-    if (profileError || !profileData?.role) {
+    if (profileError) {
+      console.error('Profile fetch error:', profileError.message);
+    }
+
+    if (!profileData || !profileData.role) {
+      console.log('No role found — redirecting to /account');
       router.replace('/account');
-      return setLoading(false);
+      setLoading(false);
+      return;
     }
 
     setIsLoggedIn(true);
     setShowAuth(false);
 
-    // route based on their role
     if (profileData.role === 'client') {
+      console.log('Redirecting to client Home');
       router.replace('/client/Home');
+      return;
     } else if (profileData.role === 'technician') {
-      router.replace('/technician/Dashboard');
+      console.log('Redirecting to technician Dashboard');
+      router.replace('/technician/Dashboard/tech_dashboard');
+      return;
     }
 
     setLoading(false);
   };
 
-  /** AUTH LISTENER + INITIAL SESSION RESTORE **/
+  /** AUTH LISTENER + INITIAL RESTORE **/
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
@@ -124,9 +122,8 @@ export default function Index() {
     };
   }, []);
 
-  /** PUSH NOTIFICATIONS SETUP **/
+  /** PUSH NOTIFICATIONS **/
   useEffect(() => {
-    // 1) Android notification channel
     if (Platform.OS === 'android') {
       Notifications.setNotificationChannelAsync('default', {
         name: 'default',
@@ -136,7 +133,6 @@ export default function Index() {
       });
     }
 
-    // 2) Permissions & get token
     (async () => {
       if (!Device.isDevice) {
         Alert.alert('Must use a physical device for Push Notifications');
@@ -145,24 +141,62 @@ export default function Index() {
 
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
+
       if (existingStatus !== 'granted') {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
+
       if (finalStatus !== 'granted') {
         Alert.alert('Failed to get push token for push notification!');
         return;
       }
 
+      const logToSupabase = async (message: string) => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
+
+      if (user) {
+        await supabase.from('logs').insert([
+          {
+          user_id: user.id,
+          message,
+          },
+        ]);
+      }
+      };
+
       const tokenData = await Notifications.getExpoPushTokenAsync();
-      setExpoPushToken(tokenData.data);
-      console.log('Expo Push Token:', tokenData.data);
+      setExpoPushToken(tokenData.data); 
+      console.log('APNs Device Token:', tokenData.data);
+      await logToSupabase(`📲 APNs token retrieved: ${tokenData.data}`);
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+
+      
+
+
+      if (user && tokenData) {
+        const { error: insertError } = await supabase
+          .from('push_tokens')
+          .upsert(
+            [{ user_id: user.id, token: tokenData.data }],
+            { onConflict: ['user_id'] }
+          );
+
+        if (insertError) {
+          await logToSupabase(`❌ Supabase insert error: ${insertError.message}`);
+          console.error('Failed to insert push token:', insertError.message);
+        } else {
+          console.log('Push token saved to push_tokens table');
+        }
+      }
     })();
 
-    // 3) Listeners for incoming notifications
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification Received:', notification);
     });
+
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('Notification Response:', response);
     });
@@ -173,7 +207,6 @@ export default function Index() {
     };
   }, []);
 
-  // show a full-screen spinner while restoring session
   if (loading) {
     return (
       <View style={styles.loadingContainer}>

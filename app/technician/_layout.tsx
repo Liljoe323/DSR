@@ -122,7 +122,7 @@ export default function TabLayout() {
         <>
           {/* Tech tabs */}
           <Tabs.Screen
-            name="Dashboard"
+            name="tech_dashboard"
             options={{
               title: 'Dashboard',
               tabBarIcon: ({ color, focused }) => (

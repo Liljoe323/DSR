@@ -1,8 +1,10 @@
 import Button from '@/components/Button';
 import ImageViewer from '@/components/imageviewer';
 import { supabase } from '@/lib/supabase';
+import theme from '@/styles/theme';
+import * as FileSystem from "expo-file-system";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -17,9 +19,44 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import theme from '@/styles/theme';
 
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
+
+// ---- Helpers for cross-platform uploads ----
+
+// Base64 -> Uint8Array (works with or without Buffer polyfill)
+function b64ToBytes(b64: string) {
+  // @ts-ignore
+  if (typeof atob === 'function') {
+    // @ts-ignore
+    const bin = atob(b64);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  // Fallback to Buffer if available
+  // @ts-ignore
+  const buf = Buffer.from(b64, 'base64');
+  return new Uint8Array(buf);
+}
+
+// Convert any URI (content:// or file://) to compressed JPEG bytes
+async function uriToJpegBytes(uri: string, maxWidth = 1600, jpegQuality = 0.8) {
+  // Normalize/resize & force JPEG (fixes iOS HEIC, reduces Android payloads)
+  const manipulated = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: maxWidth } }],
+    { compress: jpegQuality, format: ImageManipulator.SaveFormat.JPEG }
+  );
+
+  // Read as base64 so this works for content:// on Android
+  const base64 = await FileSystem.readAsStringAsync(manipulated.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  return b64ToBytes(base64);
+}
 
 export default function RequestParts() {
   const [images, setImages] = useState<string[]>([]);
@@ -57,44 +94,16 @@ export default function RequestParts() {
   }, []);
 
   const pickImageAsync = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Permission to access media library is required!');
-      return;
-    }
-
-    let result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       quality: 1,
-      base64: true,
     });
 
     if (!result.canceled) {
-      setImages((prev) => [...prev, result.assets[0].uri]);
+      setImages((prev) => [...prev, result.assets[0].uri]); // content:// on Android, file:// on iOS
     } else {
       Alert.alert('Image Selection Cancelled', 'You did not select any image.');
-    }
-  };
-
-  const takePhotoAsync = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Permission to use camera is required!');
-      return;
-    }
-
-    let result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-      base64: true,
-    });
-
-    if (!result.canceled) {
-      setImages((prev) => [...prev, result.assets[0].uri]);
-    } else {
-      Alert.alert('Camera Cancelled', 'You did not take a photo.');
     }
   };
 
@@ -103,53 +112,58 @@ export default function RequestParts() {
   };
 
   const handleSubmit = async () => {
+    if (!title.trim() || !description.trim()) {
+      Alert.alert('Missing info', 'Please provide a title and description.');
+      return;
+    }
+
     let uploadedUrls: string[] = [];
 
-    for (const uri of images) {
-      try {
-        const fileName = `client-${Date.now()}-${Math.random()}.jpg`;
-        const fileInfo = await FileSystem.getInfoAsync(uri);
-
-        if (!fileInfo.exists) throw new Error('File does not exist');
-
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-        const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    try {
+      // Upload sequentially to keep memory usage low
+      for (const uri of images) {
+        // Always convert to JPEG bytes (cross-platform safe)
+        const bytes = await uriToJpegBytes(uri, 1600, 0.8);
+        const fileName = `client-${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`;
 
         const { error: uploadError } = await supabase.storage
           .from('parts-request-pictures')
-          .upload(fileName, binary, {
+          .upload(fileName, bytes, {
             contentType: 'image/jpeg',
-            upsert: true,
+            upsert: false,
           });
 
         if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage.from('parts-request-pictures').getPublicUrl(fileName);
+        const { data } = supabase.storage
+          .from('parts-request-pictures')
+          .getPublicUrl(fileName);
+
         uploadedUrls.push(data.publicUrl);
-      } catch (error: any) {
-        console.error('Upload failed:', error.message);
-        Alert.alert('Upload failed', error.message);
-        return;
       }
-    }
 
-    const { error } = await supabase.from('parts_requests').insert([
-      {
-        title,
-        description,
-        company,
-        contact,
-        image_url: uploadedUrls,
-      },
-    ]);
+      const { error } = await supabase.from('parts_requests').insert([
+        {
+          title,
+          description,
+          company,
+          contact,
+          image_url: uploadedUrls, // jsonb/text[] in your table
+        },
+      ]);
 
-    if (error) {
-      Alert.alert('Submission Failed', error.message);
-    } else {
-      Alert.alert('Request Submitted');
-      setTitle('');
-      setDescription('');
-      setImages([]);
+      if (error) {
+        Alert.alert('Submission Failed', error.message);
+      } else {
+        Alert.alert('Request Submitted');
+        setTitle('');
+        setDescription('');
+        setImages([]);
+        // keep company and contact
+      }
+    } catch (error: any) {
+      console.error('Upload failed:', error?.message || error);
+      Alert.alert('Upload failed', error?.message ?? 'Please try again.');
     }
   };
 
@@ -201,10 +215,8 @@ export default function RequestParts() {
             </>
           )}
 
-          <View style={styles.stackedButtons}>
+          <View style={styles.row}>
             <Button theme="primary" label="Add Photo" onPress={pickImageAsync} />
-            <View style={{ height: 12 }} />
-            <Button theme="secondary" label="Take Photo" onPress={takePhotoAsync} />
           </View>
 
           <View style={styles.thumbnailContainer}>
@@ -262,8 +274,8 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
-  stackedButtons: {
-    flexDirection: 'column',
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
     marginTop: theme.spacing.sm,
   },

@@ -109,8 +109,10 @@ const styles = StyleSheet.create({
   header: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: theme.colors.text,
-    marginBottom: 16,
+    color: theme.colors.textOnPrimary,
+    marginTop: 50,
+    marginBottom: 30,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: theme.colors.card,

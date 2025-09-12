@@ -17,12 +17,15 @@
         "projectId": "6e684fb4-ee1d-4a1c-9743-3b00a76cde87"
       }
     },
+    "owner": "liljoe323",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
-  
     "plugins": [
       "expo-router",
+       ["expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }],
       "expo-image-picker",
       [
         "expo-splash-screen",
@@ -32,23 +35,21 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.liljoe323.DSR",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSUserNotificationUsageDescription": "This app uses notifications to alert you of important updates.",
-
- 
         "NSCameraUsageDescription": "We need camera access so you can take pictures for service requests.",
         "NSPhotoLibraryUsageDescription": "We need access to your photo library to attach images to service requests.",
-        "NSPhotoLibraryAddUsageDescription": "We need to save photos you take in your library for service requests."
+        "NSPhotoLibraryAddUsageDescription": "We need to save photos you take in your library for service requests.",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/splash-icon.png",
@@ -56,23 +57,30 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.liljoe323.DSR",
-
-
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
-
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "experiments": {
       "typedRoutes": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6e684fb4-ee1d-4a1c-9743-3b00a76cde87"
     }
   }
 }

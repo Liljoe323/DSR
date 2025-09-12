@@ -24,7 +24,7 @@ export default function AccountScreen() {
     company: '',
     role: '',
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [addressPromptVisible, setAddressPromptVisible] = useState(false);
   const [newCompanyAddress, setNewCompanyAddress] = useState('');
   const router = useRouter();
@@ -33,20 +33,28 @@ export default function AccountScreen() {
   useEffect(() => {
     const loadProfile = async () => {
       setLoading(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData?.session?.user;
-      if (!user) return;
+
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !userData?.user) {
+        setLoading(false);
+        Alert.alert('Not logged in', 'Please log in again.');
+        router.replace('/');
+        return;
+      }
+
+      const user = userData.user;
 
       const { data, error } = await supabase
         .from('profiles')
         .select('full_name, phone_number, company, role')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error(error);
         Alert.alert('Error loading profile');
-      } else {
+      } else if (data) {
         setProfile({
           full_name: data.full_name || '',
           phone_number: data.phone_number || '',
@@ -54,6 +62,7 @@ export default function AccountScreen() {
           role: data.role || '',
         });
       }
+
       setLoading(false);
     };
 
@@ -62,8 +71,8 @@ export default function AccountScreen() {
 
   const updateProfile = async () => {
     setLoading(true);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData?.session?.user;
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData?.user;
     if (!user) return;
 
     if (profile.company) {
@@ -91,23 +100,34 @@ export default function AccountScreen() {
   };
 
   const saveProfile = async (userId: string) => {
-    const updates = {
-      id: userId,
-      ...profile,
-      phone_number: profile.phone_number,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase.from('profiles').upsert(updates);
-
-    if (error) {
-      console.error(error);
-      Alert.alert('Error updating profile');
-    } else {
-      Alert.alert('Profile updated');
-    }
-    setLoading(false);
+  const updates = {
+    id: userId,
+    ...profile,
+    phone_number: profile.phone_number,
+    updated_at: new Date().toISOString(),
   };
+
+  const { error } = await supabase.from('profiles').upsert(updates);
+
+  if (error) {
+    console.error(error);
+    Alert.alert('Error updating profile');
+  } else {
+    Alert.alert('Profile updated');
+
+    // ✅ Redirect based on role
+    if (profile.role === 'technician') {
+      router.replace('/technician/Dashboard/tech_dashboard');
+    } else if (profile.role === 'client') {
+      router.replace('/client/Home');
+    } else {
+      router.replace('/');
+    }
+  }
+
+  setLoading(false);
+};
+
 
   const insertCompanyAndSave = async () => {
     setAddressPromptVisible(false);
@@ -121,8 +141,8 @@ export default function AccountScreen() {
       console.error(insertError);
       Alert.alert('Error saving new company');
     } else {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData?.session?.user;
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
       if (user) await saveProfile(user.id);
     }
     setNewCompanyAddress('');
@@ -140,6 +160,14 @@ export default function AccountScreen() {
       router.replace('/');
     }
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: '#fff', textAlign: 'center', marginTop: 100 }}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>

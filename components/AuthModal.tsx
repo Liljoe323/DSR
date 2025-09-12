@@ -1,15 +1,14 @@
-// components/AuthModal.tsx
 import { supabase } from '@/lib/supabase';
-import { Redirect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  ActivityIndicator,
 } from 'react-native';
 import Modal from 'react-native-modal';
 
@@ -19,6 +18,8 @@ type Props = {
 };
 
 export default function AuthModal({ isVisible, onClose }: Props) {
+  const router = useRouter();
+
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,8 +35,9 @@ export default function AuthModal({ isVisible, onClose }: Props) {
 
     try {
       if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({ email, password },
-          {redirectTo: 'dsr://account'}
+        const { data, error } = await supabase.auth.signUp(
+          { email, password },
+          //{ redirectTo: '/account' } // optional: for deep linking after email confirm
         );
 
         if (error) throw error;
@@ -45,12 +47,28 @@ export default function AuthModal({ isVisible, onClose }: Props) {
 
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert([{ id: userId, role }]);
+          .insert([{ id: userId, role, full_name: '', company: '' }]);
 
         if (profileError) throw profileError;
 
-        Alert.alert('Account Created', 'Check your email to confirm your account.');
-        setIsSignUp(false);
+        if (role === 'technician') {
+  await supabase.from('profiles').insert([
+    { id: userId, role, full_name: '', company: '' }
+  ]);
+
+  Alert.alert(
+    'Account Created',
+    'Please check your email to confirm your account. Once confirmed, log in to complete your profile.'
+  );
+
+  setIsSignUp(false); // Switch to login form
+  setEmail('');
+  setPassword('');
+}
+
+
+
+
         setEmail('');
         setPassword('');
       } else {
@@ -98,7 +116,7 @@ export default function AuthModal({ isVisible, onClose }: Props) {
             {['client', 'technician'].map((r) => (
               <TouchableOpacity
                 key={r}
-                onPress={() => setRole(r as 'Customer' | 'Technician')}
+                onPress={() => setRole(r as 'client' | 'technician')}
                 style={[styles.roleButton, role === r && styles.roleSelected]}
               >
                 <Text style={[styles.roleLabel, role === r && styles.roleLabelSelected]}>

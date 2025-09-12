@@ -12,9 +12,9 @@ import {
   View,
 } from 'react-native';
 
-const HIDDEN_KEY = 'hiddenPLCAlarms';
+const HIDDEN_KEY = 'hiddenServiceRequests';
 
-export default function PLCAlarmsScreen() {
+export default function ServiceRequestsScreen() {
   const [alarms, setAlarms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,12 +29,12 @@ export default function PLCAlarmsScreen() {
     } catch {}
 
     const { data, error } = await supabase
-      .from('plc_alarms')
+      .from('service_requests')
       .select('*')
-      .order('received_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (!error && data) {
-      const visibleAlarms = data.filter(alarm => !hiddenSet.has(`plc:${alarm.id}`));
+      const visibleAlarms = data.filter(alarm => !hiddenSet.has(`service:${alarm.id}`));
       setAlarms(visibleAlarms);
     }
 
@@ -46,10 +46,10 @@ export default function PLCAlarmsScreen() {
     fetchAlarms();
 
     const channel = supabase
-      .channel('realtime:plc_alarms')
+      .channel('realtime:service_requests')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'plc_alarms' },
+        { event: 'INSERT', schema: 'public', table: 'service_requests' },
         fetchAlarms
       )
       .subscribe();
@@ -65,7 +65,7 @@ export default function PLCAlarmsScreen() {
   }, [fetchAlarms]);
 
   async function hideAlarm(id: number) {
-    const key = `plc:${id}`;
+    const key = `service:${id}`;
     try {
       const json = await AsyncStorage.getItem(HIDDEN_KEY);
       const arr = json ? JSON.parse(json) : [];
@@ -85,14 +85,17 @@ export default function PLCAlarmsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        <Text style={styles.header}>🔔 PLC Alarms</Text>
+        <Text style={styles.header}>🔧 Service Requests</Text>
 
         {alarms.map((alarm) => (
           <View key={alarm.id} style={styles.card}>
-            <Text style={styles.title}>{alarm.subject || 'No Subject'}</Text>
-            <Text style={styles.body}>{alarm.body || 'No Body'}</Text>
+            <Text style={styles.title}>{alarm.title || 'No Subject'}</Text>
+            <Text style={styles.body}>{alarm.description || 'No Body'}</Text>
+            <Text style={styles.meta}>Company: {alarm.company}</Text>
+            <Text style={styles.meta}>Contact: {alarm.contact}</Text>
+            <Text style={styles.meta}>Phone Number: {alarm.phone_number}</Text>
             <Text style={styles.meta}>
-              Received: {new Date(alarm.received_at).toLocaleString()}
+              Received: {new Date(alarm.created_at).toLocaleString()}
             </Text>
 
             <View style={styles.cardActions}>
@@ -107,7 +110,7 @@ export default function PLCAlarmsScreen() {
         ))}
 
         {!loading && alarms.length === 0 && (
-          <Text style={styles.noData}>No PLC alarms found.</Text>
+          <Text style={styles.noData}>No service requests found.</Text>
         )}
       </ScrollView>
     </SafeAreaView>

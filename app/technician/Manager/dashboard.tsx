@@ -1,15 +1,15 @@
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  View,
   TouchableOpacity,
-  RefreshControl,
+  View,
 } from 'react-native';
 import DropDownPicker from 'react-native-dropdown-picker';
 
@@ -243,8 +243,10 @@ const styles = StyleSheet.create({
   header: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: theme.colors.text,
-    marginVertical: 12,
+    color: theme.colors.textOnPrimary,
+    marginTop: 50,
+    marginBottom: 30,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: theme.colors.card,
