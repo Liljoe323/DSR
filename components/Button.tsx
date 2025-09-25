@@ -1,6 +1,5 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
 import theme from '@/styles/theme';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 type Props = {
   label: string;
@@ -33,14 +32,6 @@ export default function Button({ label, theme: themeType, onPress }: Props) {
         ]}
         onPress={onPress}
       >
-        {isPrimary && (
-          <FontAwesome
-            name="picture-o"
-            size={18}
-            color={theme.colors.textPrimary}
-            style={styles.buttonIcon}
-          />
-        )}
         <Text
           style={[
             styles.buttonLabel,

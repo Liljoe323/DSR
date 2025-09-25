@@ -31,6 +31,7 @@ export default function EmergencyRequestScreen() {
     const { data, error } = await supabase
       .from('emergency_service_requests')
       .select('*')
+      .eq('completed_job', false)
       .order('created_at', { ascending: false });
 
     if (!error && data) {

@@ -1,7 +1,7 @@
 // app/technician/Assignments.tsx
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,9 @@ import {
   View,
   RefreshControl,
 } from 'react-native';
+import { useRouter } from 'expo-router'
+
+const router = useRouter();
 
 export default function Assignments() {
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -97,29 +100,20 @@ export default function Assignments() {
     fetchAssignments();
   }, [fetchAssignments]);
 
-  const markAsComplete = async (request: any) => {
-    if (!userId) return;
+  const markAsComplete = (request: any) => {
+  if (!userId) return;
 
-    const matchObj: any = { technician_id: userId };
-    if (request.request_type === 'service') {
-      matchObj.service_request_id = request.id;
-    } else {
-      matchObj.emergency_service_request_id = request.id;
-    }
-
-    const { error } = await supabase
-      .from('technician_assignments')
-      .update({ completed: true })
-      .match(matchObj);
-
-    if (error) {
-      console.error('❌ Mark complete error:', error);
-      Alert.alert('Error', 'Failed to mark assignment as complete.');
-    } else {
-      // remove locally so it disappears immediately
-      setAssignments(prev => prev.filter(a => a.id !== request.id));
-    }
-  };
+  // Navigate to the Service Report screen and prefill params
+  router.push({
+    pathname: '/technician/report',
+    params: {
+      request_id: request.id,
+      request_type: request.request_type ?? 'service', // 'service' | 'emergency'
+      company: request.company ?? '',
+      assignment_request_id: request.id,               // used to mark the assignment completed after submit
+    },
+  });
+};
 
   return (
     <View style={styles.container}>
