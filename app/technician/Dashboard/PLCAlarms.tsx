@@ -13,11 +13,26 @@ import {
 } from 'react-native';
 
 const HIDDEN_KEY = 'hiddenPLCAlarms';
+const COLLAPSED_KEY = 'collapsedPLCAlarms'; // NEW
 
 export default function PLCAlarmsScreen() {
   const [alarms, setAlarms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set()); // NEW (keys: plc:<id>)
+
+  const loadCollapsed = useCallback(async () => {
+    try {
+      const json = await AsyncStorage.getItem(COLLAPSED_KEY);
+      if (json) setCollapsedSet(new Set(JSON.parse(json)));
+    } catch {}
+  }, []);
+
+  const saveCollapsed = useCallback(async (setVal: Set<string>) => {
+    try {
+      await AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify(Array.from(setVal)));
+    } catch {}
+  }, []);
 
   const fetchAlarms = useCallback(async () => {
     if (!refreshing) setLoading(true);
@@ -43,6 +58,7 @@ export default function PLCAlarmsScreen() {
   }, [refreshing]);
 
   useEffect(() => {
+    loadCollapsed(); // NEW
     fetchAlarms();
 
     const channel = supabase
@@ -57,7 +73,7 @@ export default function PLCAlarmsScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchAlarms]);
+  }, [fetchAlarms, loadCollapsed]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -77,6 +93,17 @@ export default function PLCAlarmsScreen() {
     fetchAlarms();
   }
 
+  // NEW: collapse helpers
+  const isCollapsed = (id: number) => collapsedSet.has(`plc:${id}`);
+  const toggleCollapsed = async (id: number) => {
+    const key = `plc:${id}`;
+    const next = new Set(collapsedSet);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCollapsedSet(next);
+    await saveCollapsed(next);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -87,24 +114,43 @@ export default function PLCAlarmsScreen() {
       >
         <Text style={styles.header}>🔔 PLC Alarms</Text>
 
-        {alarms.map((alarm) => (
-          <View key={alarm.id} style={styles.card}>
-            <Text style={styles.title}>{alarm.subject || 'No Subject'}</Text>
-            <Text style={styles.body}>{alarm.body || 'No Body'}</Text>
-            <Text style={styles.meta}>
-              Received: {new Date(alarm.received_at).toLocaleString()}
-            </Text>
-
-            <View style={styles.cardActions}>
+        {alarms.map((alarm) => {
+          const collapsed = isCollapsed(alarm.id);
+          return (
+            <View key={alarm.id} style={styles.card}>
+              {/* NEW collapse/expand button */}
               <TouchableOpacity
-                style={styles.hideButton}
-                onPress={() => hideAlarm(alarm.id)}
+                style={styles.collapseBtn}
+                onPress={() => toggleCollapsed(alarm.id)}
+                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
               >
-                <Text style={styles.hideButtonText}>Hide</Text>
+                <Text style={styles.collapseBtnText}>{collapsed ? '+' : '−'}</Text>
               </TouchableOpacity>
+
+              {/* Always show subject/title */}
+              <Text style={styles.title}>{alarm.subject || 'No Subject'}</Text>
+
+              {/* Collapsed hides body + meta + actions */}
+              {collapsed ? null : (
+                <>
+                  <Text style={styles.body}>{alarm.body || 'No Body'}</Text>
+                  <Text style={styles.meta}>
+                    Received: {new Date(alarm.received_at).toLocaleString()}
+                  </Text>
+
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={styles.hideButton}
+                      onPress={() => hideAlarm(alarm.id)}
+                    >
+                      <Text style={styles.hideButtonText}>Hide</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
-          </View>
-        ))}
+          );
+        })}
 
         {!loading && alarms.length === 0 && (
           <Text style={styles.noData}>No PLC alarms found.</Text>
@@ -130,6 +176,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   card: {
+    position: 'relative', // NEW (for corner button)
     backgroundColor: '#2a2a2a',
     padding: 16,
     borderRadius: 12,
@@ -137,10 +184,31 @@ const styles = StyleSheet.create({
     borderColor: '#444',
     borderWidth: 1,
   },
+  // NEW styles:
+  collapseBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3a3a3a',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#555',
+  },
+  collapseBtnText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
   title: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+    marginRight: 36, // leave space for corner button
     marginBottom: 6,
   },
   body: {

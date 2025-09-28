@@ -3,7 +3,6 @@ import theme from '@/styles/theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 export default function TabLayout() {

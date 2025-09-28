@@ -20,23 +20,29 @@ export default function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null); // spinner for "Mark Completed"
   const [openDropdowns, setOpenDropdowns] = useState<{ [key: string]: boolean }>({});
   const [selectedTechs, setSelectedTechs] = useState<{ [key: string]: string | null }>({});
 
   const fetchData = useCallback(async () => {
     if (!refreshing) setLoading(true);
 
-    // 1. grab service & emergency calls
     const [
       { data: serviceData, error: serviceError },
       { data: emergencyData, error: emergencyError },
-      // 2. grab all tech profiles
       { data: techData, error: techError },
-      // 3. grab *all* assignments (so we can see which are complete)
       { data: assignDataAll, error: assignError },
     ] = await Promise.all([
-      supabase.from('service_requests').select('*').order('created_at', { ascending: false }),
-      supabase.from('emergency_service_requests').select('*').order('created_at', { ascending: false }),
+      supabase
+        .from('service_requests')
+        .select('*')
+        .not('completed_job', 'is', 'true') // show false or null
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('emergency_service_requests')
+        .select('*')
+        .not('completed_job', 'is', 'true')
+        .order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name').eq('role', 'technician'),
       supabase
         .from('technician_assignments')
@@ -59,30 +65,28 @@ export default function ManagerDashboard() {
       return;
     }
 
-    // Combine into one list with a request_type flag
     const combined = [
       ...(serviceData || []).map(r => ({ ...r, request_type: 'service' as const })),
       ...(emergencyData || []).map(r => ({ ...r, request_type: 'emergency' as const })),
     ];
 
-    // Split assignments into incomplete vs completed
-    const incomplete = (assignDataAll || []).filter(a => !a.completed);
+    // Hide requests that techs already marked completed (belt & suspenders)
     const completedIds = new Set(
       (assignDataAll || [])
         .filter(a => a.completed)
         .map(a => (a.service_request_id ?? a.emergency_service_request_id)?.toString())
     );
-
-    // Filter out any call that’s been marked complete
     const visibleRequests = combined.filter(r => !completedIds.has(r.id.toString()));
 
     // Group *incomplete* assignments by request ID
     const grouped: { [key: string]: any[] } = {};
-    incomplete.forEach(a => {
-      const key = (a.service_request_id ?? a.emergency_service_request_id)!.toString();
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(a.profiles);
-    });
+    (assignDataAll || [])
+      .filter(a => !a.completed)
+      .forEach(a => {
+        const key = (a.service_request_id ?? a.emergency_service_request_id)!.toString();
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(a.profiles);
+      });
 
     setRequests(visibleRequests);
     setTechnicians(techData || []);
@@ -95,7 +99,6 @@ export default function ManagerDashboard() {
     fetchData();
   }, [fetchData]);
 
-  // Pull-to-refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchData();
@@ -113,9 +116,7 @@ export default function ManagerDashboard() {
     else payload.emergency_service_request_id = requestId;
 
     const { error } = await supabase.from('technician_assignments').insert([payload]);
-    if (error && error.code !== '23505') {
-      Alert.alert('Error', error.message);
-    }
+    if (error && error.code !== '23505') Alert.alert('Error', error.message);
     await fetchData();
     setAssigning(null);
   };
@@ -135,7 +136,38 @@ export default function ManagerDashboard() {
     else await fetchData();
   };
 
-  // Render the dropdown for a given request
+  // Mark a request as completed
+  const markCompleted = async (req: any) => {
+    const key = req.id.toString();
+    const table = req.request_type === 'service' ? 'service_requests' : 'emergency_service_requests';
+
+    Alert.alert(
+      'Mark Completed',
+      'Are you sure you want to mark this request as completed? It will be removed from the list.',
+      [
+        { text: 'No' },
+        {
+          text: 'Yes',
+          onPress: async () => {
+            setClosingId(key);
+            // Optimistically remove
+            setRequests(prev => prev.filter(r => !(r.id === req.id && r.request_type === req.request_type)));
+
+            const { error } = await supabase.from(table).update({ completed_job: true }).eq('id', req.id);
+
+            setClosingId(null);
+
+            if (error) {
+              Alert.alert('Update Failed', error.message || 'Could not mark as completed.');
+              await fetchData(); // revert
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Dropdown for a given request
   const renderDropdown = (req: any) => {
     const key = req.id.toString();
     const already = assignments[key] || [];
@@ -165,10 +197,38 @@ export default function ManagerDashboard() {
     );
   };
 
+  // Expandable description block (uses ONLY req.description)
+  const DescriptionBlock = ({ text }: { text: string }) => {
+    const [expanded, setExpanded] = useState(false);
+    return (
+      <TouchableOpacity onPress={() => setExpanded(e => !e)} activeOpacity={0.7}>
+        <Text style={styles.description} numberOfLines={expanded ? undefined : 3}>
+          {text}
+        </Text>
+        {text.length > 140 ? (
+          <Text style={styles.toggle}>{expanded ? 'Show less' : 'Show more'}</Text>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
   // Split into unassigned vs assigned (only among visible requests)
   const assignedIds = new Set(Object.keys(assignments));
   const unassigned = requests.filter(r => !assignedIds.has(r.id.toString()));
   const assignedList = requests.filter(r => assignedIds.has(r.id.toString()));
+
+  const CompletedButton = ({ req }: { req: any }) => {
+    const busy = closingId === req.id.toString();
+    return (
+      <TouchableOpacity
+        style={[styles.completeBtn, busy && styles.completeBtnDisabled]}
+        disabled={busy}
+        onPress={() => markCompleted(req)}
+      >
+        <Text style={styles.completeBtnText}>{busy ? 'Saving…' : 'Mark Completed'}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <ScrollView
@@ -192,7 +252,17 @@ export default function ManagerDashboard() {
               {req.company} – {req.contact}
             </Text>
             <Text style={styles.meta}>{new Date(req.created_at).toLocaleString()}</Text>
-            {renderDropdown(req)}
+
+            {/* Description (only from `description`) */}
+            {typeof req.description === 'string' && req.description.trim().length > 0 ? (
+              <DescriptionBlock text={req.description} />
+            ) : null}
+
+            {/* Actions */}
+            <View style={styles.actionsRow}>
+              <View style={{ flex: 1 }}>{renderDropdown(req)}</View>
+              <CompletedButton req={req} />
+            </View>
           </View>
         ))
       )}
@@ -211,6 +281,12 @@ export default function ManagerDashboard() {
               {req.company} – {req.contact}
             </Text>
             <Text style={styles.meta}>{new Date(req.created_at).toLocaleString()}</Text>
+
+            {/* Description (only from `description`) */}
+            {typeof req.description === 'string' && req.description.trim().length > 0 ? (
+              <DescriptionBlock text={req.description} />
+            ) : null}
+
             <Text style={styles.meta}>Assigned Tech(s):</Text>
             {assignments[req.id.toString()]?.map((tech, idx) => (
               <View key={idx} style={styles.techRow}>
@@ -222,8 +298,12 @@ export default function ManagerDashboard() {
                 </TouchableOpacity>
               </View>
             ))}
+
             <Text style={styles.assignLabel}>Assign Another Technician:</Text>
-            {renderDropdown(req)}
+            <View style={styles.actionsRow}>
+              <View style={{ flex: 1 }}>{renderDropdown(req)}</View>
+              <CompletedButton req={req} />
+            </View>
           </View>
         ))
       )}
@@ -304,5 +384,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: theme.colors.error,
     textDecorationLine: 'underline',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
+  completeBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#10B981',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeBtnDisabled: {
+    opacity: 0.6,
+  },
+  completeBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  description: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.colors.text,
+  },
+  toggle: {
+    marginTop: 4,
+    fontSize: 12,
+    textDecorationLine: 'underline',
+    color: theme.colors.primary,
   },
 });

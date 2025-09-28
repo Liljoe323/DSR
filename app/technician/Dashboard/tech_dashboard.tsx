@@ -270,6 +270,8 @@ export default function TechnicianDashboard() {
           </TouchableOpacity>
         </View>
 
+        <Text style={styles.headerText}> Customer Requests</Text>
+
         <View style={styles.plcButtonContainer}>
           <TouchableOpacity
             style={styles.plcButton}
@@ -309,6 +311,29 @@ export default function TechnicianDashboard() {
             <Text style={styles.plcButtonText}>🔩 Parts Requests</Text>
           </TouchableOpacity>
         </View>
+
+        <Text style={styles.headerText}> Make a Request For:</Text>
+
+        <View style={styles.plcButtonContainer}>
+          <TouchableOpacity
+            style={styles.plcButton}
+            onPress={() => navigation.navigate('Request Service')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.plcButtonText}>🔧 Service </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.plcButtonContainer}>
+          <TouchableOpacity
+            style={styles.plcButton}
+            onPress={() => navigation.navigate('Parts Request')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.plcButtonText}>🔩 Parts</Text>
+          </TouchableOpacity>
+        </View>
+
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="fade">
@@ -345,4 +370,5 @@ const styles = StyleSheet.create({
   plcButton: { backgroundColor: theme.colors.primaryLight, paddingVertical: 14, borderRadius: 10, alignItems: 'center', elevation: 5 },
   plcButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   accountButton: { backgroundColor: theme.colors.primaryLight, padding: 6, borderRadius: 20 },
+  headerText: {textAlign: "center", color:  '#fff', fontSize: 25, padding: 12 }
 });

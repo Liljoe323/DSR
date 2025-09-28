@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,13 +20,11 @@ import DropDownPicker from "react-native-dropdown-picker";
 
 type CompanyItem = { label: string; value: string };
 
-// JS Date -> 'HH:MM:SS' for Postgres `time`
 const toPgTime = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-// "123" -> 123; "" -> null; "abc" -> null
 const parseNumOrNull = (v: string): number | null => {
   if (typeof v !== "string") return null;
   const trimmed = v.trim();
@@ -35,47 +33,54 @@ const parseNumOrNull = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const s = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v) ?? undefined;
+
 export default function ServiceReport() {
   const router = useRouter();
 
-  // Route params
-  const params = useLocalSearchParams<{
-    requestId?: string | string[];
+  const p = useLocalSearchParams<{
+    request_id?: string | string[];
+    assignment_id?: string | string[];
+    service_request_id?: string | string[];
+    emergency_service_request_id?: string | string[];
+    company?: string | string[];
     companyId?: string | string[];
-    assignmentId?: string | string[];
   }>();
-  const requestId = params.requestId ? String(params.requestId) : undefined;
-  const paramCompanyId = params.companyId ? String(params.companyId) : undefined;
-  const assignmentId = params.assignmentId ? String(params.assignmentId) : undefined;
+
+  const requestIdGeneric = s(p.request_id);
+  const assignmentId = s(p.assignment_id);
+  const serviceRequestId = s(p.service_request_id);
+  const emergencyRequestId = s(p.emergency_service_request_id);
+  const paramCompanyName = s(p.company);
+  const paramCompanyId = s(p.companyId);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Company handling
-  const [companyId, setCompanyId] = useState<string | null>(
-    paramCompanyId ? String(paramCompanyId) : null
-  );
-  const [companyName, setCompanyName] = useState<string>("");
-
-  // Dropdown state
-  const [open, setOpen] = useState(false);
+  // Company picker + free-typed
   const [companyItems, setCompanyItems] = useState<CompanyItem[]>([]);
+  const [open, setOpen] = useState(false);
+  const [companyId, setCompanyId] = useState<string | null>(paramCompanyId ?? null);
+  const [companyName, setCompanyName] = useState<string>(paramCompanyName ?? "");
+  const [freeCompanyName, setFreeCompanyName] = useState<string>("");
 
   // Form fields
   const [location, setLocation] = useState("");
   const [po, setPo] = useState("");
 
-  // Date/time pickers (store as Date, send as HH:MM:SS)
+  // Time
   const [startAt, setStartAt] = useState<Date>(new Date());
   const [endAt, setEndAt] = useState<Date>(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
+  // Misc
   const [materialsText, setMaterialsText] = useState("");
   const [notes, setNotes] = useState("");
   const [followUpNeeded, setFollowUpNeeded] = useState(false);
 
-  // Refrigeration toggle + fields
+  // Refrigeration
   const [isRefrigeration, setIsRefrigeration] = useState(false);
   const [headPressure, setHeadPressure] = useState<string>("");
   const [suctionPressure, setSuctionPressure] = useState<string>("");
@@ -84,14 +89,11 @@ export default function ServiceReport() {
   const [condenserTemp, setCondenserTemp] = useState<string>("");
   const [productTemp, setProductTemp] = useState<string>("");
 
-  // Robot toggle + fields
+  // Robot
   const [isRobot, setIsRobot] = useState(false);
   const [box1Problem, setBox1Problem] = useState("");
   const [box2Problem, setBox2Problem] = useState("");
   const [box3Problem, setBox3Problem] = useState("");
-
-  // Auth user
-  const [userId, setUserId] = useState<string | null>(null);
 
   // ---------- Load ----------
   useEffect(() => {
@@ -100,26 +102,33 @@ export default function ServiceReport() {
         const { data: sessionData } = await supabase.auth.getSession();
         setUserId(sessionData?.session?.user?.id ?? null);
 
+        const { data: companies, error: cErr } = await supabase
+          .from("companies")
+          .select("id,company_name")
+          .order("company_name", { ascending: true });
+        if (cErr) throw cErr;
+
+        const items = (companies ?? []).map((c: any) => ({
+          label: c?.company_name ?? "(unnamed)",
+          value: String(c?.id),
+        }));
+        setCompanyItems(items);
+
+        // Preselect from params if present
         if (paramCompanyId) {
-          const { data: c, error: cerr } = await supabase
-            .from("companies")
-            .select("id,company_name")
-            .eq("id", paramCompanyId)
-            .maybeSingle();
-          if (cerr) throw cerr;
-          setCompanyName(c?.company_name ?? "");
-        } else {
-          const { data: companies, error: cErr } = await supabase
-            .from("companies")
-            .select("id,company_name")
-            .order("company_name", { ascending: true });
-          if (cErr) throw cErr;
-          setCompanyItems(
-            (companies ?? []).map((c: any) => ({
-              label: c?.company_name ?? "(unnamed)",
-              value: String(c?.id),
-            }))
+          setCompanyId(String(paramCompanyId));
+          const found = items.find(i => i.value === String(paramCompanyId));
+          if (found) setCompanyName(found.label);
+        } else if (paramCompanyName) {
+          const exact = items.find(
+            i => (i.label ?? "").trim().toLowerCase() === paramCompanyName.trim().toLowerCase()
           );
+          if (exact) {
+            setCompanyId(exact.value);
+            setCompanyName(exact.label);
+          } else {
+            setCompanyName(paramCompanyName);
+          }
         }
       } catch (e: any) {
         console.error("Load error:", e);
@@ -128,24 +137,30 @@ export default function ServiceReport() {
         setLoading(false);
       }
     })();
-  }, [paramCompanyId]);
+  }, [paramCompanyId, paramCompanyName]);
 
   // ---------- Helpers ----------
   const materialsJson = useMemo(
     () =>
       materialsText
         .split(",")
-        .map((s) => s.trim())
+        .map(s => s.trim())
         .filter(Boolean),
     [materialsText]
   );
 
-  const resolvedCompanyId: string | null = (companyId ?? paramCompanyId) ?? null;
   const timesValid = endAt.getTime() >= startAt.getTime();
 
   const canSubmit = useMemo(
-    () => Boolean(userId && resolvedCompanyId && timesValid),
-    [userId, resolvedCompanyId, timesValid]
+    () =>
+      Boolean(
+        userId &&
+          timesValid &&
+          ((companyId && String(companyId).length > 0) ||
+            (freeCompanyName && freeCompanyName.trim().length > 0) ||
+            (companyId == null && companyName && companyName.trim().length > 0))
+      ),
+    [userId, timesValid, companyId, freeCompanyName, companyName]
   );
 
   const onChangeStart = (_: DateTimePickerEvent, selected?: Date) => {
@@ -162,9 +177,38 @@ export default function ServiceReport() {
     }
   };
 
-  // Reset form after a successful ad-hoc submission
-  const resetForm = () => {
-    setCompanyId(paramCompanyId ? String(paramCompanyId) : null);
+  // Resolve or create company id if needed
+  async function resolveCompanyId(): Promise<string | null> {
+    if (companyId) return companyId;
+
+    const name = (freeCompanyName || companyName || "").trim();
+    if (!name) return null;
+
+    const { data: existing, error: findErr } = await supabase
+      .from("companies")
+      .select("id,company_name")
+      .ilike("company_name", name);
+    if (findErr) console.warn("Company lookup warning:", findErr.message);
+
+    const exact =
+      existing?.find(c => (c.company_name ?? "").trim().toLowerCase() === name.toLowerCase()) ??
+      existing?.[0];
+    if (exact) return String(exact.id);
+
+    const { data: created, error: insErr } = await supabase
+      .from("companies")
+      .insert([{ company_name: name }])
+      .select("id")
+      .single();
+    if (insErr) {
+      Alert.alert("Error", `Could not create company "${name}": ${insErr.message}`);
+      return null;
+    }
+    return String(created!.id);
+  }
+
+  const resetForm = useCallback(() => {
+    // keep company prefill for convenience; clear if you prefer
     setOpen(false);
     setLocation("");
     setPo("");
@@ -174,7 +218,6 @@ export default function ServiceReport() {
     setMaterialsText("");
     setNotes("");
     setFollowUpNeeded(false);
-
     setIsRefrigeration(false);
     setHeadPressure("");
     setSuctionPressure("");
@@ -182,40 +225,46 @@ export default function ServiceReport() {
     setCompressorAmp("");
     setCondenserTemp("");
     setProductTemp("");
-
     setIsRobot(false);
     setBox1Problem("");
     setBox2Problem("");
     setBox3Problem("");
-  };
+    setFreeCompanyName("");
+  }, []);
 
   // ---------- Submit ----------
   const onSubmit = async () => {
-    if (!canSubmit) {
-      Alert.alert(
-        "Incomplete",
-        !timesValid
-          ? "End time must be after start time."
-          : "Please select a company and fill required fields."
-      );
+    if (!timesValid) {
+      Alert.alert("Incomplete", "End time must be after start time.");
       return;
     }
     setSaving(true);
     try {
-      const payload: any = {
-        service_request_id: requestId ?? null, // nullable for ad-hoc
+      const resolvedId = await resolveCompanyId();
+      if (!resolvedId) {
+        setSaving(false);
+        Alert.alert("Customer required", "Please select a customer or type a new company name.");
+        return;
+      }
+
+      // Only set ONE request FK (prefer service if both were somehow passed)
+      const fk: any = {};
+      if (serviceRequestId) fk.service_request_id = serviceRequestId;
+      else if (emergencyRequestId) fk.emergency_service_request_id = emergencyRequestId;
+
+      // Insert report
+      const { error: insErr } = await supabase.from("service_reports").insert({
+        ...fk,
         assignment_id: assignmentId ?? null,
         technician_id: userId,
-        company_id: resolvedCompanyId,
+        company_id: resolvedId,
         job_location: location || null,
         po: po || null,
-        start_time: toPgTime(startAt), // Postgres `time`
-        end_time: toPgTime(endAt),     // Postgres `time`
+        start_time: toPgTime(startAt),
+        end_time: toPgTime(endAt),
         description_notes: notes || null,
         follow_up_needed: followUpNeeded,
         materials_used: materialsJson,
-
-        // Refrigeration fields
         is_refrigeration: isRefrigeration,
         head_pressure: isRefrigeration ? parseNumOrNull(headPressure) : null,
         suction_pressure: isRefrigeration ? parseNumOrNull(suctionPressure) : null,
@@ -223,33 +272,82 @@ export default function ServiceReport() {
         compressor_amp: isRefrigeration ? parseNumOrNull(compressorAmp) : null,
         condenser_temp: isRefrigeration ? parseNumOrNull(condenserTemp) : null,
         product_temp: isRefrigeration ? parseNumOrNull(productTemp) : null,
-
-        // Robot fields
         is_robot: isRobot,
         box1_problem: isRobot ? (box1Problem.trim() || null) : null,
         box2_problem: isRobot ? (box2Problem.trim() || null) : null,
         box3_problem: isRobot ? (box3Problem.trim() || null) : null,
-      };
-
-      const { error: insErr } = await supabase.from("service_reports").insert(payload);
+      });
       if (insErr) throw insErr;
 
-      // If this was tied to an assignment, mark complete and leave the page
+      // Mark assignment complete (UUID)
       if (assignmentId) {
-        const { error: upErr } = await supabase
+        const uuidRe =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRe.test(assignmentId)) {
+          Alert.alert("Bad assignment id", `Not a UUID: ${assignmentId}`);
+          setSaving(false);
+          return;
+        }
+
+        // Visibility check (helps debug RLS)
+        const { error: readErr } = await supabase
           .from("technician_assignments")
-          .update({ completed: true })
-          .eq("id", assignmentId);
-        if (upErr) console.warn("Assignment update warning:", upErr.message);
+          .select("id")
+          .eq("id", assignmentId)
+          .maybeSingle();
+        if (readErr) {
+          Alert.alert("Cannot read assignment", readErr.message);
+          setSaving(false);
+          return;
+        }
+
+        const { data: updated, error: upErr } = await supabase
+          .from("technician_assignments")
+          .update({ completed: true /*, completed_at: new Date().toISOString()*/ })
+          .eq("id", assignmentId)
+          .eq("technician_id", userId!) // aligns with typical RLS
+          .select("id, completed")
+          .single();
+
+        if (upErr) {
+          Alert.alert("Assignment not updated", upErr.message);
+          setSaving(false);
+          return;
+        }
+        if (!updated?.completed) {
+          Alert.alert("Assignment not updated", "The update did not persist.");
+          setSaving(false);
+          return;
+        }
       }
 
-      // Success UX:
-      if (assignmentId || requestId) {
-        Alert.alert("Saved", "Service report submitted.", [{ text: "OK", onPress: () => router.back() }]);
+      // Mark associated request complete
+      if (serviceRequestId) {
+        const { error: sErr } = await supabase
+          .from("service_requests")
+          .update({ completed_job: true })
+          .eq("id", serviceRequestId);
+        if (sErr) console.warn("Service request update warning:", sErr.message);
+      } else if (emergencyRequestId) {
+        const { error: eErr } = await supabase
+          .from("emergency_service_requests")
+          .update({ completed_job: true })
+          .eq("id", emergencyRequestId);
+        if (eErr) console.warn("Emergency request update warning:", eErr.message);
+      }
+
+      // Reset BEFORE navigating away so state clears reliably
+      resetForm();
+
+      const fromAssignmentOrRequest = Boolean(
+        assignmentId || serviceRequestId || emergencyRequestId
+      );
+      if (fromAssignmentOrRequest) {
+        Alert.alert("Success", "Report submitted and request marked complete.", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
       } else {
-        // ad-hoc flow: stay and clear the form
-        Alert.alert("Saved", "Service report submitted.", [{ text: "Start new report", onPress: resetForm }]);
-        resetForm();
+        Alert.alert("Success", "Report submitted. You can start another.");
       }
     } catch (e: any) {
       console.error("Submit error:", e);
@@ -269,12 +367,9 @@ export default function ServiceReport() {
     );
   }
 
-  const showReadonlyCompany = Boolean(paramCompanyId);
-
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Header with title (left) and toggles (right) */}
         <View style={styles.headerRow}>
           <Text style={styles.title}>Service Report</Text>
           <View style={styles.togglesRight}>
@@ -289,55 +384,55 @@ export default function ServiceReport() {
           </View>
         </View>
 
-        {/* Customer */}
-        <Text style={styles.label}>Customer</Text>
-        {showReadonlyCompany ? (
-          <View style={styles.readonlyBox}>
-            <Text style={styles.readonlyText}>{companyName || paramCompanyId}</Text>
-          </View>
-        ) : (
-          <View style={{ zIndex: 10 }}>
-            <DropDownPicker
-              open={open}
-              value={companyId ?? null}
-              items={companyItems}
-              setOpen={setOpen}
-              setValue={setCompanyId}
-              setItems={setCompanyItems}
-              placeholder="Select a customer"
-              searchable
-              listMode="MODAL"
-              style={{ borderColor: "#ccc", borderRadius: 10, backgroundColor: "#fff", minHeight: 48 }}
-              textStyle={{ color: "#111", fontWeight: "600" }}
-              placeholderStyle={{ color: "#888", fontWeight: "400" }}
-              dropDownContainerStyle={{ borderColor: "#ccc", backgroundColor: "#fff" }}
-              listItemLabelStyle={{ color: "#111" }}
-              selectedItemLabelStyle={{ color: "#111", fontWeight: "700" }}
-              modalTitle="Select Company"
-              modalTitleStyle={{ color: "#111", fontWeight: "700" }}
-            />
+        {(serviceRequestId || emergencyRequestId || requestIdGeneric || assignmentId) && (
+          <View style={{ marginBottom: 8 }}>
+            {serviceRequestId ? <Text style={{ color: "#666" }}>Service Request ID: {serviceRequestId}</Text> : null}
+            {emergencyRequestId ? <Text style={{ color: "#666" }}>Emergency Request ID: {emergencyRequestId}</Text> : null}
+            {requestIdGeneric ? <Text style={{ color: "#666" }}>Request ID: {requestIdGeneric}</Text> : null}
+            {assignmentId ? <Text style={{ color: "#666" }}>Assignment ID: {assignmentId}</Text> : null}
           </View>
         )}
 
-        {/* Location */}
+        <Text style={styles.label}>Customer</Text>
+        <View style={{ zIndex: 10 }}>
+          <DropDownPicker
+            open={open}
+            value={companyId ?? null}
+            items={companyItems}
+            setOpen={setOpen}
+            setValue={setCompanyId}
+            setItems={setCompanyItems}
+            placeholder={companyName ? `Prefilled: ${companyName}` : "Select a customer"}
+            searchable
+            listMode="MODAL"
+            style={{ borderColor: "#ccc", borderRadius: 10, backgroundColor: "#fff", minHeight: 48 }}
+            textStyle={{ color: "#111", fontWeight: "600" }}
+            placeholderStyle={{ color: "#888", fontWeight: "400" }}
+            dropDownContainerStyle={{ borderColor: "#ccc", backgroundColor: "#fff" }}
+            listItemLabelStyle={{ color: "#111" }}
+            selectedItemLabelStyle={{ color: "#111", fontWeight: "700" }}
+            modalTitle="Select Company"
+            modalTitleStyle={{ color: "#111", fontWeight: "700" }}
+          />
+        </View>
+
+        <Text style={[styles.smallLabel, { marginTop: 10 }]}>Or type a new company name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="New customer name"
+          value={freeCompanyName}
+          onChangeText={setFreeCompanyName}
+        />
+        <Text style={{ fontSize: 12, color: "#777", marginTop: 4 }}>
+          If you don’t select a company above, we’ll use this name and create a new customer if needed.
+        </Text>
+
         <Text style={styles.label}>Location</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Town"
-          value={location}
-          onChangeText={setLocation}
-        />
+        <TextInput style={styles.input} placeholder="Town" value={location} onChangeText={setLocation} />
 
-          {/* PO/Job Description */}
         <Text style={styles.label}>PO/Job Description</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Brief Job Description"
-          value={po}
-          onChangeText={setPo}
-        />
+        <TextInput style={styles.input} placeholder="Brief Job Description" value={po} onChangeText={setPo} />
 
-        {/* Start Time */}
         <Text style={styles.label}>Start Time</Text>
         <Pressable onPress={() => setShowStartPicker(true)} style={[styles.input, { justifyContent: "center" }]}>
           <Text style={{ color: "#111" }}>{startAt.toLocaleTimeString()}</Text>
@@ -352,7 +447,6 @@ export default function ServiceReport() {
           />
         )}
 
-        {/* End Time */}
         <Text style={styles.label}>End Time</Text>
         <Pressable onPress={() => setShowEndPicker(true)} style={[styles.input, { justifyContent: "center" }]}>
           <Text style={{ color: "#111" }}>{endAt.toLocaleTimeString()}</Text>
@@ -367,13 +461,8 @@ export default function ServiceReport() {
           />
         )}
 
-        {!timesValid && (
-          <Text style={{ color: "#c00", marginTop: 6 }}>
-            End time must be after start time.
-          </Text>
-        )}
+        {!timesValid && <Text style={{ color: "#c00", marginTop: 6 }}>End time must be after start time.</Text>}
 
-        {/* Materials */}
         <Text style={styles.label}>Materials Used (comma separated)</Text>
         <TextInput
           style={[styles.input, { minHeight: 60 }]}
@@ -383,102 +472,36 @@ export default function ServiceReport() {
           multiline
         />
 
-        {/* Refrigeration-only fields */}
         {isRefrigeration && (
           <View style={styles.refrigCard}>
             <Text style={styles.refrigTitle}>Refrigeration Details</Text>
-
             <Text style={styles.smallLabel}>Head Pressure</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="psig"
-              keyboardType="numeric"
-              value={headPressure}
-              onChangeText={setHeadPressure}
-            />
-
+            <TextInput style={styles.input} placeholder="psig" keyboardType="numeric" value={headPressure} onChangeText={setHeadPressure} />
             <Text style={styles.smallLabel}>Suction Pressure</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="psig"
-              keyboardType="numeric"
-              value={suctionPressure}
-              onChangeText={setSuctionPressure}
-            />
-
+            <TextInput style={styles.input} placeholder="psig" keyboardType="numeric" value={suctionPressure} onChangeText={setSuctionPressure} />
             <Text style={styles.smallLabel}>System Amps</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="A"
-              keyboardType="numeric"
-              value={systemAmp}
-              onChangeText={setSystemAmp}
-            />
-
+            <TextInput style={styles.input} placeholder="A" keyboardType="numeric" value={systemAmp} onChangeText={setSystemAmp} />
             <Text style={styles.smallLabel}>Compressor Amps</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="A"
-              keyboardType="numeric"
-              value={compressorAmp}
-              onChangeText={setCompressorAmp}
-            />
-
+            <TextInput style={styles.input} placeholder="A" keyboardType="numeric" value={compressorAmp} onChangeText={setCompressorAmp} />
             <Text style={styles.smallLabel}>Condenser Temp (°F)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="°F"
-              keyboardType="numeric"
-              value={condenserTemp}
-              onChangeText={setCondenserTemp}
-            />
-
+            <TextInput style={styles.input} placeholder="°F" keyboardType="numeric" value={condenserTemp} onChangeText={setCondenserTemp} />
             <Text style={styles.smallLabel}>Product Temp (°F)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="°F"
-              keyboardType="numeric"
-              value={productTemp}
-              onChangeText={setProductTemp}
-            />
+            <TextInput style={styles.input} placeholder="°F" keyboardType="numeric" value={productTemp} onChangeText={setProductTemp} />
           </View>
         )}
 
-        {/* Robot-only fields */}
         {isRobot && (
           <View style={styles.robotCard}>
             <Text style={styles.robotTitle}>Robot Details</Text>
-
             <Text style={styles.smallLabel}>Box 1 Problem</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 60 }]}
-              placeholder="Describe issue in Box 1"
-              value={box1Problem}
-              onChangeText={setBox1Problem}
-              multiline
-            />
-
+            <TextInput style={[styles.input, { minHeight: 60 }]} placeholder="Describe issue in Box 1" value={box1Problem} onChangeText={setBox1Problem} multiline />
             <Text style={styles.smallLabel}>Box 2 Problem</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 60 }]}
-              placeholder="Describe issue in Box 2"
-              value={box2Problem}
-              onChangeText={setBox2Problem}
-              multiline
-            />
-
+            <TextInput style={[styles.input, { minHeight: 60 }]} placeholder="Describe issue in Box 2" value={box2Problem} onChangeText={setBox2Problem} multiline />
             <Text style={styles.smallLabel}>Box 3 Problem</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 60 }]}
-              placeholder="Describe issue in Box 3"
-              value={box3Problem}
-              onChangeText={setBox3Problem}
-              multiline
-            />
+            <TextInput style={[styles.input, { minHeight: 60 }]} placeholder="Describe issue in Box 3" value={box3Problem} onChangeText={setBox3Problem} multiline />
           </View>
         )}
 
-        {/* Notes */}
         <Text style={styles.label}>Notes</Text>
         <TextInput
           style={[styles.input, { minHeight: 80 }]}
@@ -488,7 +511,6 @@ export default function ServiceReport() {
           multiline
         />
 
-        {/* Follow Up */}
         <View style={styles.row}>
           <Text style={styles.label}>Follow-up Needed</Text>
           <Switch value={followUpNeeded} onValueChange={setFollowUpNeeded} />
@@ -530,14 +552,6 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: "white",
   },
-  readonlyBox: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 12,
-    backgroundColor: "#f7f7f7",
-  },
-  readonlyText: { fontWeight: "600" },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   refrigCard: {
     marginTop: 18,

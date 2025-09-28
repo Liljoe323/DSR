@@ -3,6 +3,10 @@ import theme from '@/styles/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Dimensions,
+  FlatList,
+  Image,
+  Modal,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -13,15 +17,72 @@ import {
 } from 'react-native';
 
 const HIDDEN_KEY = 'hiddenServiceRequests';
+const COLLAPSED_KEY = 'collapsedServiceRequests';
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+type ServiceRequest = {
+  id: number;
+  title?: string | null;
+  description?: string | null;
+  company?: string | null;
+  contact?: string | null;
+  phone_number?: string | null;
+  created_at: string;
+  image_url?: string | string[] | null; // 👈 image links
+  // derived for UI
+  display_images?: string[];
+};
 
 export default function ServiceRequestsScreen() {
-  const [alarms, setAlarms] = useState<any[]>([]);
+  const [alarms, setAlarms] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set()); // "service:<id>"
+
+  // Full-screen viewer
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerImages, setViewerImages] = useState<string[]>([]);
+
+  const loadCollapsed = useCallback(async () => {
+    try {
+      const json = await AsyncStorage.getItem(COLLAPSED_KEY);
+      if (json) {
+        const arr = JSON.parse(json) as string[];
+        setCollapsedSet(new Set(arr));
+      }
+    } catch {}
+  }, []);
+
+  const saveCollapsed = useCallback(async (setVal: Set<string>) => {
+    try {
+      await AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify(Array.from(setVal)));
+    } catch {}
+  }, []);
+
+  // Parse image_url into array of URLs (supports array, JSON string, CSV/newlines)
+  const parseImageUrlField = (val: any): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (!trimmed) return [];
+      if (trimmed.startsWith('[')) {
+        try {
+          const arr = JSON.parse(trimmed);
+          if (Array.isArray(arr)) return arr.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
+        } catch {}
+      }
+      return trimmed.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  };
 
   const fetchAlarms = useCallback(async () => {
     if (!refreshing) setLoading(true);
 
+    // Load hidden keys
     let hiddenSet = new Set<string>();
     try {
       const json = await AsyncStorage.getItem(HIDDEN_KEY);
@@ -35,8 +96,12 @@ export default function ServiceRequestsScreen() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      const visibleAlarms = data.filter(alarm => !hiddenSet.has(`service:${alarm.id}`));
-      setAlarms(visibleAlarms);
+      const withImages = (data as ServiceRequest[]).map(r => ({
+        ...r,
+        display_images: parseImageUrlField((r as any).image_url),
+      }));
+      const visible = withImages.filter((r) => !hiddenSet.has(`service:${r.id}`));
+      setAlarms(visible);
     }
 
     setLoading(false);
@@ -44,6 +109,8 @@ export default function ServiceRequestsScreen() {
   }, [refreshing]);
 
   useEffect(() => {
+    // load collapsed states and data
+    loadCollapsed();
     fetchAlarms();
 
     const channel = supabase
@@ -58,7 +125,7 @@ export default function ServiceRequestsScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchAlarms]);
+  }, [fetchAlarms, loadCollapsed]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -78,62 +145,143 @@ export default function ServiceRequestsScreen() {
     fetchAlarms();
   }
 
+  function isCollapsed(id: number) {
+    return collapsedSet.has(`service:${id}`);
+  }
+
+  async function toggleCollapsed(id: number) {
+    const key = `service:${id}`;
+    const next = new Set(collapsedSet);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCollapsedSet(next);
+    await saveCollapsed(next);
+  }
+
+  // Viewer controls
+  const openViewer = (images: string[], index: number) => {
+    if (!images?.length) return;
+    setViewerImages(images);
+    setViewerIndex(index);
+    setViewerOpen(true);
+  };
+  const closeViewer = () => setViewerOpen(false);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollArea}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <Text style={styles.header}>🔧 Service Requests</Text>
 
-        {alarms.map((alarm) => (
-          <View key={alarm.id} style={styles.card}>
-            <Text style={styles.title}>{alarm.title || 'No Subject'}</Text>
-            <Text style={styles.body}>{alarm.description || 'No Body'}</Text>
-            <Text style={styles.meta}>Company: {alarm.company}</Text>
-            <Text style={styles.meta}>Contact: {alarm.contact}</Text>
-            <Text style={styles.meta}>Phone Number: {alarm.phone_number}</Text>
-            <Text style={styles.meta}>
-              Received: {new Date(alarm.created_at).toLocaleString()}
-            </Text>
-
-            <View style={styles.cardActions}>
+        {alarms.map((alarm) => {
+          const collapsed = isCollapsed(alarm.id);
+          return (
+            <View key={alarm.id} style={styles.card}>
+              {/* Collapse/Expand button (top-right) */}
               <TouchableOpacity
-                style={styles.hideButton}
-                onPress={() => hideAlarm(alarm.id)}
+                style={styles.collapseBtn}
+                onPress={() => toggleCollapsed(alarm.id)}
+                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
               >
-                <Text style={styles.hideButtonText}>Hide</Text>
+                <Text style={styles.collapseBtnText}>{collapsed ? '+' : '−'}</Text>
               </TouchableOpacity>
+
+              {/* Always show title */}
+              <Text style={styles.title}>{alarm.title || 'No Subject'}</Text>
+
+              {/* If collapsed, stop here */}
+              {collapsed ? null : (
+                <>
+                  {/* Thumbnails from image_url */}
+                  {alarm.display_images?.length ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.imageRow}
+                    >
+                      {alarm.display_images.map((url, idx) => (
+                        <TouchableOpacity key={idx} onPress={() => openViewer(alarm.display_images!, idx)}>
+                          <Image source={{ uri: url }} style={styles.thumb} />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+
+                  <Text style={styles.body}>{alarm.description || 'No Body'}</Text>
+                  <Text style={styles.meta}>Company: {alarm.company ?? '—'}</Text>
+                  {/* If you later join address, render it here */}
+                  {/* <Text style={styles.meta}>Address: {alarm.companies?.service_address ?? '—'}</Text> */}
+                  <Text style={styles.meta}>Contact: {alarm.contact ?? '—'}</Text>
+                  <Text style={styles.meta}>Phone Number: {alarm.phone_number ?? '—'}</Text>
+                  <Text style={styles.meta}>
+                    Received: {new Date(alarm.created_at).toLocaleString()}
+                  </Text>
+
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity style={styles.hideButton} onPress={() => hideAlarm(alarm.id)}>
+                      <Text style={styles.hideButtonText}>Hide</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
-          </View>
-        ))}
+          );
+        })}
 
         {!loading && alarms.length === 0 && (
           <Text style={styles.noData}>No service requests found.</Text>
         )}
       </ScrollView>
+
+      {/* Full-screen image viewer */}
+      <Modal
+        visible={viewerOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={closeViewer}
+      >
+        <View style={styles.viewerBackdrop}>
+          <FlatList
+            data={viewerImages}
+            horizontal
+            pagingEnabled
+            keyExtractor={(u, i) => `${i}-${u}`}
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={viewerIndex}
+            getItemLayout={(_, index) => ({ length: SCREEN_W, offset: SCREEN_W * index, index })}
+            onMomentumScrollEnd={(e) => {
+              const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+              setViewerIndex(idx);
+            }}
+            renderItem={({ item }) => (
+              <View style={{ width: SCREEN_W, height: SCREEN_H, alignItems: 'center', justifyContent: 'center' }}>
+                <Image source={{ uri: item }} style={styles.viewerImage} />
+              </View>
+            )}
+          />
+
+          <View style={styles.viewerTopBar}>
+            <TouchableOpacity onPress={closeViewer} style={styles.viewerCloseBtn} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+              <Text style={styles.viewerCloseText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.viewerCounter}>
+              {viewerIndex + 1} / {viewerImages.length}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  scrollArea: {
-    padding: 16,
-    paddingBottom: 80,
-  },
-  header: {
-    fontSize: theme.fontSize.lg,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 16,
-  },
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  scrollArea: { padding: 16, paddingBottom: 80 },
+  header: { fontSize: theme.fontSize.lg, fontWeight: '700', color: '#fff', marginBottom: 16 },
   card: {
+    position: 'relative',
     backgroundColor: '#2a2a2a',
     padding: 16,
     borderRadius: 12,
@@ -141,41 +289,47 @@ const styles = StyleSheet.create({
     borderColor: '#444',
     borderWidth: 1,
   },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 6,
+  collapseBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#3a3a3a',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: '#555',
   },
-  body: {
-    fontSize: 14,
-    color: '#ddd',
-    marginBottom: 6,
+  collapseBtnText: { color: '#fff', fontSize: 18, fontWeight: '700', lineHeight: 18 },
+  title: { fontSize: 16, fontWeight: '600', color: '#fff', marginRight: 36, marginBottom: 6 },
+  imageRow: { marginTop: 8, marginBottom: 6 },
+  thumb: {
+    width: 72, height: 72, borderRadius: 8, marginRight: 8,
+    backgroundColor: '#1f1f1f', borderWidth: StyleSheet.hairlineWidth, borderColor: '#555',
   },
-  meta: {
-    fontSize: 12,
-    color: '#aaa',
-    marginTop: 2,
+  body: { fontSize: 14, color: '#ddd', marginBottom: 6 },
+  meta: { fontSize: 12, color: '#aaa', marginTop: 2 },
+  cardActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
+  hideButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.colors.error, borderRadius: 6 },
+  hideButtonText: { color: '#fff', fontWeight: '600' },
+  noData: { fontSize: 16, color: '#999', textAlign: 'center', marginTop: 40 },
+
+  // Viewer styles
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.98)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 10,
+  viewerImage: { width: SCREEN_W, height: SCREEN_H, resizeMode: 'contain' },
+  viewerTopBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    paddingTop: 40, paddingHorizontal: 16, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  hideButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: theme.colors.error,
-    borderRadius: 6,
+  viewerCloseBtn: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
   },
-  hideButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  noData: {
-    fontSize: 16,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 40,
-  },
+  viewerCloseText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  viewerCounter: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });
