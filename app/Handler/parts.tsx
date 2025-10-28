@@ -1,27 +1,28 @@
+// app/handler/PartsManager.tsx
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   Image,
   Modal,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  Alert,
 } from 'react-native';
-import BackButton from '@/components/BackButton';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 const HIDDEN_KEY = 'hiddenparts';
 const COLLAPSED_KEY = 'collapsedPartsRequests';
-
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 type PartsRequest = {
@@ -29,16 +30,15 @@ type PartsRequest = {
   title?: string | null;
   description?: string | null;
   company?: string | null;
-  company_id?: string | number;
+  company_id?: string | number | null;
   contact?: string | null;
   phone_number?: string | null;
   created_at: string;
   taken_care_of?: boolean | null;
-  image_url?: string | string[] | null;
-  companies?: { company_name?: string | null; service_address?: string | null } | null;
-
   ordered?: boolean | null;
   ordered_at?: string | null;
+  image_url?: string | string[] | null;
+  companies?: { company_name?: string | null; service_address?: string | null } | null;
 
   display_images?: string[]; // derived for UI
 };
@@ -52,30 +52,54 @@ type Company = {
 type SortField = 'created_at' | 'company' | 'title';
 type SortDir = 'asc' | 'desc';
 
-export default function PartsRequestsScreen() {
-  const [alarms, setAlarms] = useState<PartsRequest[]>([]);
+export default function PartsManager() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  const [items, setItems] = useState<PartsRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set()); // keys: parts:<id>
 
-  // Search (exactly like service requests)
+  // search (debounced)
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sorting (exactly like service requests)
+  // sort
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  // Full-screen viewer state
+  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(new Set());
+
+  // image viewer
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [viewerImages, setViewerImages] = useState<string[]>([]);
 
-  const router = useRouter();
   const goBack = () => router.back();
 
+  // --- utils ---
+  const parseImageUrlField = (val: any): string[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (!trimmed) return [];
+      if (trimmed.startsWith('[')) {
+        try {
+          const arr = JSON.parse(trimmed);
+          if (Array.isArray(arr)) return arr.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
+        } catch {}
+      }
+      return trimmed.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  };
 
+  const getServiceAddress = (row: PartsRequest) =>
+    row.companies?.service_address ?? (row as any)['service_address'] ?? '—';
+
+  // --- persisted UI state ---
   const loadCollapsed = useCallback(async () => {
     try {
       const json = await AsyncStorage.getItem(COLLAPSED_KEY);
@@ -89,27 +113,20 @@ export default function PartsRequestsScreen() {
     } catch {}
   }, []);
 
-  const parseImageUrlField = (val: any): string[] => {
-    if (!val) return [];
-    if (Array.isArray(val)) return val.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
-    if (typeof val === 'string') {
-      const trimmed = val.trim();
-      if (!trimmed) return [];
-      if (trimmed.startsWith('[')) {
-        try {
-          const arr = JSON.parse(trimmed);
-          if (Array.isArray(arr)) return arr.filter(Boolean).map((s) => String(s).trim()).filter(Boolean);
-        } catch {}
-      }
-      return trimmed
-        .split(/[\s,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-    return [];
-  };
+  function isCollapsed(id: number) {
+    return collapsedSet.has(`parts:${id}`);
+  }
 
-  // Debounce search input (250ms) — same behavior as service requests
+  async function toggleCollapsed(id: number) {
+    const key = `parts:${id}`;
+    const next = new Set(collapsedSet);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCollapsedSet(next);
+    await saveCollapsed(next);
+  }
+
+  // --- search debounce ---
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => setDebouncedQuery(query.trim()), 250);
@@ -118,23 +135,24 @@ export default function PartsRequestsScreen() {
     };
   }, [query]);
 
-  const fetchAlarms = useCallback(async () => {
+  // --- data fetch ---
+  const fetchItems = useCallback(async () => {
     if (!refreshing) setLoading(true);
 
+    // hidden
     let hiddenSet = new Set<string>();
     try {
       const json = await AsyncStorage.getItem(HIDDEN_KEY);
       if (json) JSON.parse(json).forEach((k: string) => hiddenSet.add(k));
     } catch {}
 
-    // Map sort field to columns for joined vs base
+    // map sort fields to joined/base columns
     const orderColJoin =
       sortField === 'created_at'
         ? 'created_at'
         : sortField === 'company'
         ? 'companies.company_name'
         : 'title';
-
     const orderColBase =
       sortField === 'created_at'
         ? 'created_at'
@@ -142,7 +160,6 @@ export default function PartsRequestsScreen() {
         ? 'company'
         : 'title';
 
-    // Build search filter (case-insensitive), identical to service requests
     const buildSearch = (qb: any) => {
       if (debouncedQuery.length === 0) return qb;
       const safe = debouncedQuery.replace(/[%_]/g, '\\$&');
@@ -158,10 +175,9 @@ export default function PartsRequestsScreen() {
     };
 
     let data: PartsRequest[] | null = null;
-    let error: any = null;
 
-    // 1) Try joined select first (with search + sort)
-    let fast = buildSearch(
+    // 1) fast: joined select
+    let fastQ = buildSearch(
       supabase
         .from('parts_requests')
         .select(
@@ -172,28 +188,21 @@ export default function PartsRequestsScreen() {
            )`
         )
         .eq('taken_care_of', false)
+        // TS may not like the dot-path column type; cast is fine.
+        .order(orderColJoin as any, { ascending: sortDir === 'asc' })
     );
-    // @ts-ignore - PostgREST path ordering is allowed
-    fast = fast.order(orderColJoin, { ascending: sortDir === 'asc' });
 
-    if (fast.error) error = fast.error;
-    else {
-      const res = await fast;
-      if (res.error) error = res.error;
-      else data = (res.data as PartsRequest[]) ?? null;
-    }
-
-    // 2) Fallback: base select + client-side enrichment (with same search + sort)
-    if (error || (data && data.some((r) => r.company_id == null && !r.companies))) {
-      let base = buildSearch(
+    const fastRes = await fastQ;
+    if (fastRes.error) {
+      // 2) fallback if join failed or mixed data
+      let baseQ = buildSearch(
         supabase
           .from('parts_requests')
           .select('*')
           .eq('taken_care_of', false)
           .order(orderColBase as any, { ascending: sortDir === 'asc' })
-      );
-
-      const baseRes = await base;
+    );
+      const baseRes = await baseQ;
       if (!baseRes.error && baseRes.data) {
         const rows = baseRes.data as PartsRequest[];
         const names = Array.from(new Set(rows.map((r) => (r.company ?? '').trim()).filter(Boolean)));
@@ -216,15 +225,51 @@ export default function PartsRequestsScreen() {
             : r;
         });
       }
+    } else {
+      data = (fastRes.data as PartsRequest[]) ?? null;
+
+      // if any row lacks company info and no company_id, do the same fallback enrichment
+      if (data && data.some((r) => r.company_id == null && !r.companies)) {
+        let baseQ = buildSearch(
+          supabase
+            .from('parts_requests')
+            .select('*')
+            .eq('taken_care_of', false)
+            .order(orderColBase as any, { ascending: sortDir === 'asc' })
+        );
+        const baseRes = await baseQ;
+        if (!baseRes.error && baseRes.data) {
+          const rows = baseRes.data as PartsRequest[];
+          const names = Array.from(new Set(rows.map((r) => (r.company ?? '').trim()).filter(Boolean)));
+
+          let nameToCompany: Record<string, Company> = {};
+          if (names.length) {
+            const compRes = await supabase
+              .from('companies')
+              .select('id, company_name, service_address')
+              .in('company_name', names);
+            if (!compRes.error && compRes.data) {
+              compRes.data.forEach((c: Company) => (nameToCompany[c.company_name] = c));
+            }
+          }
+
+          data = rows.map((r) => {
+            const c = r.company ? nameToCompany[r.company] : undefined;
+            return c
+              ? { ...r, companies: { company_name: c.company_name, service_address: c.service_address ?? null } }
+              : r;
+          });
+        }
+      }
     }
 
     if (data) {
-      const enriched = data.map((row) => {
-        const display_images = parseImageUrlField(row.image_url);
-        return { ...row, display_images };
-      });
+      const enriched = data.map((row) => ({
+        ...row,
+        display_images: parseImageUrlField(row.image_url),
+      }));
       const visible = enriched.filter((a) => !hiddenSet.has(`parts:${a.id}`));
-      setAlarms(visible);
+      setItems(visible);
     }
 
     setLoading(false);
@@ -233,54 +278,65 @@ export default function PartsRequestsScreen() {
 
   useEffect(() => {
     loadCollapsed();
-    fetchAlarms();
+    fetchItems();
 
     const channel = supabase
       .channel('realtime:parts_requests')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'parts_requests' }, fetchAlarms)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parts_requests' }, fetchAlarms)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'parts_requests' }, fetchItems)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'parts_requests' }, fetchItems)
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchAlarms, loadCollapsed]);
+  }, [fetchItems, loadCollapsed]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchAlarms();
-  }, [fetchAlarms]);
+    fetchItems();
+  }, [fetchItems]);
 
-  async function hideAlarm(id: number) {
-    const key = `parts:${id}`;
-    try {
-      const json = await AsyncStorage.getItem(HIDDEN_KEY);
-      const arr = json ? JSON.parse(json) : [];
-      if (!arr.includes(key)) {
-        arr.push(key);
-        await AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(arr));
-      }
-    } catch {}
-    fetchAlarms();
-  }
+  // --- actions (manager controls) ---
+  const markOrdered = async (id: number) => {
+    // optimistic
+    setItems((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ordered: true, ordered_at: new Date().toISOString() } : r))
+    );
 
-  function isCollapsed(id: number) {
-    return collapsedSet.has(`parts:${id}`);
-  }
+    const { error } = await supabase
+      .from('parts_requests')
+      .update({ ordered: true, ordered_at: new Date().toISOString() })
+      .eq('id', id);
 
-  async function toggleCollapsed(id: number) {
-    const key = `parts:${id}`;
-    const next = new Set(collapsedSet);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setCollapsedSet(next);
-    await saveCollapsed(next);
-  }
+    if (error) {
+      Alert.alert('Error', error.message);
+      setItems((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ordered: false, ordered_at: null } : r))
+      );
+    } else {
+      fetchItems();
+    }
+  };
 
-  const getServiceAddress = (row: PartsRequest) =>
-    row.companies?.service_address ?? (row as any)['service_address'] ?? '—';
+  const markTakenCareOf = async (id: number) => {
+    // optimistic remove
+    const prev = items;
+    setItems((cur) => cur.filter((r) => r.id !== id));
 
-  // Open/close viewer
+    const { error } = await supabase
+      .from('parts_requests')
+      .update({ taken_care_of: true })
+      .eq('id', id);
+
+    if (error) {
+      Alert.alert('Error', error.message);
+      setItems(prev); // revert
+    } else {
+      fetchItems();
+    }
+  };
+
+  // --- image viewer ---
   const openViewer = (images: string[], index: number) => {
     if (!images?.length) return;
     setViewerImages(images);
@@ -289,13 +345,19 @@ export default function PartsRequestsScreen() {
   };
   const closeViewer = () => setViewerOpen(false);
 
-  const hasResults = useMemo(() => alarms.length > 0, [alarms]);
+  const hasResults = useMemo(() => items.length > 0, [items]);
 
   return (
-    <SafeAreaView style={styles.container}>
-              <BackButton onPress={goBack} />
-        <Text style={styles.header}>🔩 Parts Requests</Text>
-      {/* Search + Sort toolbar  */}
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollArea}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.header}>🔩 Parts Requests (Handler)</Text>
+
+        {/* Search + Sort */}
         <View style={styles.toolbar}>
           <TextInput
             value={query}
@@ -309,60 +371,37 @@ export default function PartsRequestsScreen() {
           />
           <View style={styles.sortRow}>
             <Text style={styles.sortLabel}>Sort:</Text>
-            <Chip
-              label="Newest"
-              active={sortField === 'created_at'}
-              onPress={() => setSortField('created_at')}
-            />
-            <Chip
-              label="Company"
-              active={sortField === 'company'}
-              onPress={() => setSortField('company')}
-            />
-            <Chip
-              label="Title"
-              active={sortField === 'title'}
-              onPress={() => setSortField('title')}
-            />
-            <TouchableOpacity
-              style={styles.dirBtn}
-              onPress={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            >
+            <Chip label="Newest"  active={sortField === 'created_at'} onPress={() => setSortField('created_at')} />
+            <Chip label="Company" active={sortField === 'company'}    onPress={() => setSortField('company')} />
+            <Chip label="Title"   active={sortField === 'title'}      onPress={() => setSortField('title')} />
+            <TouchableOpacity style={styles.dirBtn} onPress={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}>
               <Text style={styles.dirBtnText}>{sortDir.toUpperCase()}</Text>
             </TouchableOpacity>
           </View>
         </View>
-      <ScrollView
-        contentContainerStyle={styles.scrollArea}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        keyboardShouldPersistTaps="handled"
-      >
-
-
-        
 
         {loading && !hasResults ? (
-          <Text style={styles.loadingText}>Loading…</Text>
+          <ActivityIndicator color={theme.colors.primary} style={{ marginVertical: 12 }} />
         ) : null}
 
-        {alarms.map((alarm) => {
-          const collapsed = isCollapsed(alarm.id);
-          const isOrdered = !!alarm.ordered;
-          const orderedDate = alarm.ordered_at ? new Date(alarm.ordered_at).toLocaleString() : null;
+        {items.map((row) => {
+          const collapsed = isCollapsed(row.id);
+          const isOrdered = !!row.ordered;
+          const orderedDate = row.ordered_at ? new Date(row.ordered_at).toLocaleString() : null;
 
           return (
-            <View key={alarm.id} style={styles.card}>
-              {/* collapse / expand */}
+            <View key={row.id} style={styles.card}>
+              {/* Collapse toggle */}
               <TouchableOpacity
                 style={styles.collapseBtn}
-                onPress={() => toggleCollapsed(alarm.id)}
+                onPress={() => toggleCollapsed(row.id)}
                 hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
               >
                 <Text style={styles.collapseBtnText}>{collapsed ? '+' : '−'}</Text>
               </TouchableOpacity>
 
               {/* Title */}
-              <Text style={styles.title}>{alarm.title || 'No Subject'}</Text>
+              <Text style={styles.title}>{row.title || 'No Subject'}</Text>
 
               {/* Ordered badge */}
               {!collapsed && (
@@ -376,32 +415,38 @@ export default function PartsRequestsScreen() {
               {collapsed ? null : (
                 <>
                   {/* Thumbnails */}
-                  {alarm.display_images?.length ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.imageRow}
-                    >
-                      {alarm.display_images.map((url, idx) => (
-                        <TouchableOpacity key={idx} onPress={() => openViewer(alarm.display_images!, idx)}>
+                  {row.display_images?.length ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow}>
+                      {row.display_images.map((url, idx) => (
+                        <TouchableOpacity key={idx} onPress={() => openViewer(row.display_images!, idx)}>
                           <Image source={{ uri: url }} style={styles.thumb} />
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
                   ) : null}
 
-                  <Text style={styles.body}>{alarm.description || 'No Body'}</Text>
-                  <Text style={styles.meta}>
-                    Company: {alarm.companies?.company_name ?? alarm.company ?? '—'}
-                  </Text>
-                  <Text style={styles.meta}>Address: {getServiceAddress(alarm)}</Text>
-                  <Text style={styles.meta}>Contact: {alarm.contact ?? '—'}</Text>
-                  <Text style={styles.meta}>Phone Number: {alarm.phone_number ?? '—'}</Text>
-                  <Text style={styles.meta}>Received: {new Date(alarm.created_at).toLocaleString()}</Text>
+                  {/* Body + meta */}
+                  <Text style={styles.body}>{row.description || 'No description'}</Text>
+                  <Text style={styles.meta}>Company: {row.companies?.company_name ?? row.company ?? '—'}</Text>
+                  <Text style={styles.meta}>Address: {getServiceAddress(row)}</Text>
+                  <Text style={styles.meta}>Contact: {row.contact ?? '—'}</Text>
+                  <Text style={styles.meta}>Phone: {row.phone_number ?? '—'}</Text>
+                  <Text style={styles.meta}>Submitted: {new Date(row.created_at).toLocaleString()}</Text>
 
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity style={styles.hideButton} onPress={() => hideAlarm(alarm.id)}>
-                      <Text style={styles.hideButtonText}>Hide</Text>
+                  {/* Actions: merge of both pages */}
+                  <View style={styles.actionsRow}>
+                    <TouchableOpacity
+                      style={[styles.button, isOrdered ? styles.buttonDisabled : styles.buttonPrimary]}
+                      onPress={() => !isOrdered && markOrdered(row.id)}
+                      disabled={isOrdered}
+                    >
+                      <Text style={[styles.buttonText, isOrdered ? styles.buttonTextDisabled : styles.buttonTextPrimary]}>
+                        {isOrdered ? '✓ Ordered' : 'Mark as Ordered'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity onPress={() => markTakenCareOf(row.id)}>
+                      <Text style={styles.removeText}>✕ Taken Care Of</Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -410,18 +455,13 @@ export default function PartsRequestsScreen() {
           );
         })}
 
-        {!loading && alarms.length === 0 && (
-          <Text style={styles.noData}>No part requests found.</Text>
+        {!loading && items.length === 0 && (
+          <Text style={styles.noData}>No parts requests found.</Text>
         )}
       </ScrollView>
 
-      {/* Full-screen image viewer */}
-      <Modal
-        visible={viewerOpen}
-        animationType="fade"
-        transparent
-        onRequestClose={closeViewer}
-      >
+      {/* full-screen image viewer */}
+      <Modal visible={viewerOpen} animationType="fade" transparent onRequestClose={closeViewer}>
         <View style={styles.viewerBackdrop}>
           <FlatList
             data={viewerImages}
@@ -441,22 +481,19 @@ export default function PartsRequestsScreen() {
               </View>
             )}
           />
-
           <View style={styles.viewerTopBar}>
             <TouchableOpacity onPress={closeViewer} style={styles.viewerCloseBtn} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
               <Text style={styles.viewerCloseText}>✕</Text>
             </TouchableOpacity>
-            <Text style={styles.viewerCounter}>
-              {viewerIndex + 1} / {viewerImages.length}
-            </Text>
+            <Text style={styles.viewerCounter}>{viewerIndex + 1} / {viewerImages.length}</Text>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
-/** ---------- Small UI chip (same as service requests) ---------- */
+/** ---------- Small UI chip ---------- */
 function Chip({
   label,
   active,
@@ -467,10 +504,7 @@ function Chip({
   onPress: () => void;
 }) {
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[chipStyles.chip, active && chipStyles.chipActive]}
-    >
+    <TouchableOpacity onPress={onPress} style={[chipStyles.chip, active && chipStyles.chipActive]}>
       <Text style={[chipStyles.chipText, active && chipStyles.chipTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -494,17 +528,28 @@ const chipStyles = StyleSheet.create({
   chipTextActive: { color: '#fff', fontWeight: '700' },
 });
 
-/** ---------- Styles (copied where relevant) ---------- */
+/** ---------- Styles ---------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   scrollArea: { padding: 16, paddingBottom: 80 },
-  header: { fontSize: theme.fontSize.lg, fontWeight: '700', color: '#fff', marginBottom: 12, textAlign: 'center' },
+  header: { fontSize: theme.fontSize.lg, fontWeight: '700', color: '#fff', marginTop: 30, marginBottom: 12 },
 
-  // Search + sort toolbar
-  toolbar: {
-    marginBottom: 14,
-    gap: 10,
+  // back fab
+  backFab: {
+    position: 'absolute',
+    left: 12,
+    top: 8,
+    zIndex: 10,
+    elevation: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: theme.colors.primary,
   },
+  backFabText: { color: theme.colors.textOnPrimary, fontWeight: '700' },
+
+  // search/sort
+  toolbar: { marginBottom: 14, gap: 10 },
   searchInput: {
     backgroundColor: '#1e1f22',
     color: '#fff',
@@ -514,13 +559,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3a3a3a',
   },
-  sortRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  sortLabel: { color: '#c7c7c7', marginRight: 6, marginLeft: 15, fontWeight: '600' },
+  sortRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  sortLabel: { color: '#c7c7c7', marginRight: 6, fontWeight: '600' },
   dirBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -528,11 +568,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#2a2a2a',
     borderWidth: 1,
     borderColor: '#404040',
-    marginLeft: 15,
+    marginLeft: 'auto',
   },
   dirBtnText: { color: '#fff', fontWeight: '700' },
-  loadingText: { color: '#bdbdbd', marginBottom: 8 },
 
+  // card
   card: {
     position: 'relative',
     backgroundColor: '#2a2a2a',
@@ -550,8 +590,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#3a3a3a',
     borderWidth: StyleSheet.hairlineWidth, borderColor: '#555',
-    zIndex: 3,
-    elevation: 3,
+    zIndex: 3, elevation: 3,
   },
   collapseBtnText: { color: '#fff', fontSize: 18, fontWeight: '700', lineHeight: 18 },
 
@@ -573,25 +612,36 @@ const styles = StyleSheet.create({
     width: 72, height: 72, borderRadius: 8, marginRight: 8,
     backgroundColor: '#1f1f1f', borderWidth: StyleSheet.hairlineWidth, borderColor: '#555',
   },
+
   body: { fontSize: 14, color: '#ddd', marginBottom: 6 },
   meta: { fontSize: 12, color: '#aaa', marginTop: 2 },
-  cardActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
-  hideButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.colors.error, borderRadius: 6 },
-  hideButtonText: { color: '#fff', fontWeight: '600' },
+
+  actionsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  button: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  buttonPrimary: { backgroundColor: theme.colors.primary },
+  buttonDisabled: { backgroundColor: '#e1e1e1' },
+  buttonText: { fontSize: 14, fontWeight: '600' },
+  buttonTextPrimary: { color: theme.colors.textOnPrimary },
+  buttonTextDisabled: { color: theme.colors.muted },
+
+  removeText: { fontSize: 13, color: theme.colors.error, textDecorationLine: 'underline' },
+
   noData: { fontSize: 16, color: '#999', textAlign: 'center', marginTop: 40 },
 
-  // Viewer
+  // viewer
   viewerBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.98)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  viewerImage: {
-    width: SCREEN_W,
-    height: SCREEN_H,
-    resizeMode: 'contain',
-  },
+  viewerImage: { width: SCREEN_W, height: SCREEN_H, resizeMode: 'contain' },
   viewerTopBar: {
     position: 'absolute',
     top: 0, left: 0, right: 0,

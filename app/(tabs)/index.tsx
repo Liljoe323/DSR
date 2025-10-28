@@ -99,6 +99,10 @@ export default function Index() {
       console.log('Redirecting to technician Dashboard');
       router.replace('/technician/Dashboard/tech_dashboard');
       return;
+    } else if (profileData.role === 'handler') {
+      console.log('Redirecting to handler Dashboard');
+      router.replace('/Handler/report_lookup');
+      return;
     }
 
     setLoading(false);

@@ -1,19 +1,19 @@
+import ImageViewer from '@/components/imageviewer';
+import { supabase } from '@/lib/supabase';
+import theme from '@/styles/theme';
+import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TextInput,
-  TouchableOpacity,
   Alert,
   Modal,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { supabase } from '@/lib/supabase';
-import ImageViewer from '@/components/imageviewer';
-import { useRouter } from 'expo-router';
-import { useNavigation } from '@react-navigation/native';
-import theme from '@/styles/theme';
 
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
 
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: 16,
-    color: theme.colors.link || '#007AFF',
+    color: theme.colors.link || '#ffffffff',
   },
   card: {
     margin: theme.spacing.lg,
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: theme.fontSize.xl,
-    color: theme.colors.textOnPrimary,
+    color: '#000',
     fontWeight: 'bold',
     marginBottom: theme.spacing.md,
     textAlign: 'center',

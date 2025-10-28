@@ -48,8 +48,32 @@ export default function TechnicianDashboard() {
   const [showTokenPopup, setShowTokenPopup] = useState(false);
   const [currentToken, setCurrentToken] = useState('');
 
+  const [isManager, setIsManager] = useState<boolean | null>(null);
+
   const notifListener = useRef<any>();
   const responseListener = useRef<any>();
+
+  useEffect(() => {
+  const fetchUserData = async () => {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.user) return;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('is_manager')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (!error && data) {
+      setIsManager(Boolean(data.is_manager));
+    } else {
+      console.warn('Failed to fetch role or manager status:', error?.message);
+    }
+  };
+
+  fetchUserData();
+}, []);
+
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -269,6 +293,18 @@ export default function TechnicianDashboard() {
             <Ionicons name="person-circle-outline" size={40} color={theme.colors.textOnPrimary} />
           </TouchableOpacity>
         </View>
+
+        {isManager === true && (
+          <View style={styles.plcButtonContainer}>
+          <TouchableOpacity
+            style={styles.plcButton}
+            onPress={() => navigation.navigate('Manager')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.plcButtonText}>Manager Tabs</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
         <Text style={styles.headerText}> Customer Requests</Text>
 

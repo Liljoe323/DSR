@@ -19,13 +19,8 @@ import {
   View,
 } from 'react-native';
 import theme from '@/styles/theme';
-import BackButton from '@/components/BackButton';
-import { useRouter } from 'expo-router';
 
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
-
-  const router = useRouter();
-  const goBack = () => router.back();
 
 // ---- Helpers for cross-platform uploads ----
 
@@ -174,7 +169,6 @@ export default function RequestParts() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <BackButton onPress={goBack} />
       <ImageViewer imgSource={PlaceholderImage} mode="banner" />
 
       <KeyboardAvoidingView

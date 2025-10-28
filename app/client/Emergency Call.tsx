@@ -164,7 +164,7 @@ export default function EmergencyCall() {
       <KeyboardAvoidingView
         style={styles.content}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={100}
+        keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <Text style={styles.text}>SEND FIRE TRUCKS! THIS IS AN EMERGENCY!</Text>

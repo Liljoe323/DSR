@@ -22,8 +22,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import BackButton from '@/components/BackButton';
+import { useRouter } from 'expo-router';
 
 const PlaceholderImage = require('@/assets/images/dsr.jpg');
+
+  const router = useRouter();
+  const goBack = () => router.back();
 
 // ---------- Helpers: base64 -> bytes, and URI -> JPEG bytes ----------
 function b64ToBytes(b64: string) {
@@ -206,12 +211,13 @@ export default function RequestService() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BackButton onPress={goBack} />
       <ImageViewer imgSource={PlaceholderImage} mode="banner" />
 
       <KeyboardAvoidingView
         style={styles.content}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={100}
+        keyboardVerticalOffset={0}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <Text style={styles.text}>Request A Service</Text>

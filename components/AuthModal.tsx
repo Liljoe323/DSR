@@ -23,6 +23,7 @@ export default function AuthModal({ isVisible, onClose }: Props) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // Keep the UI toggle, but we won’t use it to set the DB role yet
   const [role, setRole] = useState<'client' | 'technician'>('client');
   const [loading, setLoading] = useState(false);
 
@@ -35,40 +36,45 @@ export default function AuthModal({ isVisible, onClose }: Props) {
 
     try {
       if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp(
-          { email, password },
-          //{ redirectTo: '/account' } // optional: for deep linking after email confirm
-        );
-
+        // 1) Create auth user
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
 
         const userId = data.user?.id;
-        if (!userId) throw new Error('User ID not returned after signup.');
+        if (!userId) {
+          Alert.alert('Check your email', 'We sent you a confirmation link.');
+          setIsSignUp(false);
+          setEmail('');
+          setPassword('');
+          return;
+        }
 
+        // 2) Always create profile as CLIENT (ignore selected "technician" for now)
+        //    Using upsert to avoid conflict if you have a trigger that already creates profiles.
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert([{ id: userId, role, full_name: '', company: '' }]);
+          .upsert(
+            [{ id: userId, role: 'client', full_name: '', company: '' }],
+            { onConflict: 'id' }
+          );
 
         if (profileError) throw profileError;
 
+        // Optional: let them know we saved their selection for later (UI only)
         if (role === 'technician') {
-  await supabase.from('profiles').insert([
-    { id: userId, role, full_name: '', company: '' }
-  ]);
+          Alert.alert(
+            'Signed up as Client',
+            'Technician signups are restricted right now. Your account was created as a client.'
+          );
+        } else {
+          Alert.alert(
+            'Account Created',
+            'Please check your email to confirm your account. Once confirmed, log in to complete your profile.'
+          );
+        }
 
-  Alert.alert(
-    'Account Created',
-    'Please check your email to confirm your account. Once confirmed, log in to complete your profile.'
-  );
-
-  setIsSignUp(false); // Switch to login form
-  setEmail('');
-  setPassword('');
-}
-
-
-
-
+        // Reset to login form
+        setIsSignUp(false);
         setEmail('');
         setPassword('');
       } else {
@@ -112,19 +118,24 @@ export default function AuthModal({ isVisible, onClose }: Props) {
         />
 
         {isSignUp && (
-          <View style={styles.roleSelector}>
-            {['client', 'technician'].map((r) => (
-              <TouchableOpacity
-                key={r}
-                onPress={() => setRole(r as 'client' | 'technician')}
-                style={[styles.roleButton, role === r && styles.roleSelected]}
-              >
-                <Text style={[styles.roleLabel, role === r && styles.roleLabelSelected]}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <>
+            <View style={styles.roleSelector}>
+              {['client', 'technician'].map((r) => (
+                <TouchableOpacity
+                  key={r}
+                  onPress={() => setRole(r as 'client' | 'technician')}
+                  style={[styles.roleButton, role === r && styles.roleSelected]}
+                >
+                  <Text style={[styles.roleLabel, role === r && styles.roleLabelSelected]}>
+                    {r.charAt(0).toUpperCase() + r.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ color: '#666', marginBottom: 8, textAlign: 'center' }}>
+              Technician signups are restricted. New accounts are created as clients.
+            </Text>
+          </>
         )}
 
         <TouchableOpacity
@@ -176,7 +187,7 @@ const styles = StyleSheet.create({
   roleSelector: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   roleButton: {
     paddingVertical: 10,

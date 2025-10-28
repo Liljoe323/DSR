@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // ✅ new
 import { supabase } from '@/lib/supabase';
 import theme from '@/styles/theme';
 
 export default function ManagerHome() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets(); // ✅ safe area for the button
   const [loading, setLoading] = useState(true);
   const [isManager, setIsManager] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,11 @@ export default function ManagerHome() {
     verifyManager();
   }, []);
 
+  const goBack = () => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('technician'); // ← adjust this to your technician route name if different
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -54,6 +61,15 @@ export default function ManagerHome() {
   if (error) {
     return (
       <View style={styles.container}>
+        {/* Floating Back Button (also shown on error) */}
+        <TouchableOpacity
+          onPress={goBack}
+          style={[styles.backFab, { top: insets.top + 8 }]}
+          hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+        >
+          <Text style={styles.backFabText}>← Back</Text>
+        </TouchableOpacity>
+
         <Text style={styles.errorText}>{error}</Text>
       </View>
     );
@@ -63,6 +79,15 @@ export default function ManagerHome() {
 
   return (
     <View style={styles.container}>
+      {/* Floating Back Button */}
+      <TouchableOpacity
+        onPress={goBack}
+        style={[styles.backFab, { top: insets.top + 8 }]}
+        hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+      >
+        <Text style={styles.backFabText}>← Back</Text>
+      </TouchableOpacity>
+
       <Text style={styles.header}>Manager Access</Text>
 
       <TouchableOpacity
@@ -78,11 +103,37 @@ export default function ManagerHome() {
       >
         <Text style={styles.buttonText}> View Parts Requests </Text>
       </TouchableOpacity>
+    
+    <TouchableOpacity
+        style={styles.button}
+        onPress={() => navigation.navigate('personnel')}
+      >
+        <Text style={styles.buttonText}> Personnel </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => navigation.navigate('billable_hours')}
+      >
+        <Text style={styles.buttonText}> Billable Hours </Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Floating back button
+  backFab: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 10,
+    elevation: 10, // Android
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  backFabText: { color: '#fff', fontWeight: '700' },
+
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

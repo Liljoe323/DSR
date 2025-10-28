@@ -15,9 +15,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import BackButton from '@/components/BackButton';
+import { useRouter } from 'expo-router';
 
 const HIDDEN_KEY = 'hiddenEmergencyRequests';
 const COLLAPSED_KEY = 'collapsedEmergencyRequests';
+
+const router = useRouter();
+const goBack = () => router.back();
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -236,10 +241,12 @@ export default function EmergencyRequestScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      
       <ScrollView
         contentContainerStyle={styles.scrollArea}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        <BackButton onPress={goBack} />
         <Text style={styles.header}>🚨 Emergency Requests</Text>
 
         {alarms.map((alarm) => {

@@ -11,9 +11,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import BackButton from '@/components/BackButton';
+import { useRouter } from 'expo-router';
 
 const HIDDEN_KEY = 'hiddenPLCAlarms';
 const COLLAPSED_KEY = 'collapsedPLCAlarms'; // NEW
+
+  const router = useRouter();
+  const goBack = () => router.back();
 
 export default function PLCAlarmsScreen() {
   const [alarms, setAlarms] = useState<any[]>([]);
@@ -112,6 +117,7 @@ export default function PLCAlarmsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        <BackButton onPress={goBack} />
         <Text style={styles.header}>🔔 PLC Alarms</Text>
 
         {alarms.map((alarm) => {
