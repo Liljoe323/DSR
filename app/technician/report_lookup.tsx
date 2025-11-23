@@ -55,7 +55,7 @@ export default function TechnicianReports() {
     let q = supabase
       .from("service_reports")
       .select(
-        "id, job_location, date, start_time, end_time, description_notes, follow_up_needed, companies(company_name), profiles(full_name), po"
+        "id, date, start_time, end_time, description_notes, follow_up_needed, companies(company_name), profiles(full_name), po, QB_Invoice, box1_problem, box2_problem, box3_problem, product_temp, condenser_temp, compressor_amp, system_amp, suction_pressure, head_pressure, materials_used, additional_tech"
       )
       .eq("company_id", companyId)
       .order(sortKey, { ascending: sortDir === "asc" });
@@ -130,16 +130,148 @@ export default function TechnicianReports() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.container, { paddingBottom: bottomPad }]}
         renderItem={({ item: r }) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{r.po ?? "(no PO)"}</Text>
-            <Text>Tech: {r.profiles?.full_name}</Text>
-            <Text>{r.date}</Text>
-            <Text>{r.start_time} → {r.end_time}</Text>
-            {!!r.job_location && <Text>{r.job_location}</Text>}
-            {!!r.description_notes && <Text>Notes: {r.description_notes}</Text>}
-            {r.follow_up_needed && <Text style={{ color: "red" }}>Follow-up required</Text>}
-          </View>
-        )}
+  <View style={styles.card}>
+    {/* PO as title */}
+    <Text style={styles.cardTitle}>{r.po ?? "(no PO)"}</Text>
+
+    {/* Techs */}
+    <Text>
+      Tech(s): {r.profiles?.full_name}
+      {r.additional_tech ? `, ${r.additional_tech}` : ""}
+    </Text>
+
+    {/* Date & time (if present in the row) */}
+    {r.date && <Text>{r.date}</Text>}
+    {(r.start_time || r.end_time) && (
+      <Text>
+        {r.start_time} → {r.end_time}
+      </Text>
+    )}
+
+    {/* QB Invoice */}
+    {r.QB_Invoice && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ position: "absolute", top: 8, right: 8, fontWeight: "bold", fontSize: 14, }}>Invoice #: </Text>
+          {r.QB_Invoice}
+        </Text>
+      </>
+    )}
+
+    {/* Materials */}
+    {r.materials_used && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ fontWeight: "bold" }}>Materials: </Text>
+          {r.materials_used}
+        </Text>
+      </>
+    )}
+
+    {/* Box problems */}
+    {r.box1_problem && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ fontWeight: "bold" }}>Box 1: </Text>
+          {r.box1_problem}
+        </Text>
+      </>
+    )}
+
+    {r.box2_problem && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ fontWeight: "bold" }}>Box 2: </Text>
+          {r.box2_problem}
+        </Text>
+      </>
+    )}
+
+    {r.box3_problem && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ fontWeight: "bold" }}>Box 3: </Text>
+          {r.box3_problem}
+        </Text>
+      </>
+    )}
+
+    {/* System readings */}
+    {(r.product_temp ||
+      r.condenser_temp ||
+      r.compressor_amp ||
+      r.system_amp ||
+      r.suction_pressure ||
+      r.head_pressure) && <Text> </Text>}
+
+    {r.product_temp && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>Product temp: </Text>
+        {r.product_temp}
+      </Text>
+    )}
+
+    {r.condenser_temp && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>Condenser temp: </Text>
+        {r.condenser_temp}
+      </Text>
+    )}
+
+    {r.compressor_amp && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>Compressor amp: </Text>
+        {r.compressor_amp}
+      </Text>
+    )}
+
+    {r.system_amp && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>System amp: </Text>
+        {r.system_amp}
+      </Text>
+    )}
+
+    {r.suction_pressure && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>Suction pressure: </Text>
+        {r.suction_pressure}
+      </Text>
+    )}
+
+    {r.head_pressure && (
+      <Text>
+        <Text style={{ fontWeight: "bold" }}>Head pressure: </Text>
+        {r.head_pressure}
+      </Text>
+    )}
+
+    {/* Notes */}
+    {r.description_notes && (
+      <>
+        <Text> </Text>
+        <Text>
+          <Text style={{ fontWeight: "bold" }}>Notes: </Text>
+          {r.description_notes}
+        </Text>
+      </>
+    )}
+
+    {/* Follow-up flag */}
+    {r.follow_up_needed && (
+      <>
+        <Text> </Text>
+        <Text style={{ color: "red" }}>Follow-up required</Text>
+      </>
+    )}
+  </View>
+)}
+
         ListEmptyComponent={
           !loading ? (
             <View style={{ padding: 24 }}>
@@ -350,6 +482,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     marginBottom: 15,
     backgroundColor: "#fff",
+    position: "relative",
   },
   cardTitle: { fontWeight: "600", marginBottom: 4, textAlign: "center" },
 });

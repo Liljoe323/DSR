@@ -2,7 +2,7 @@
 import { supabase } from "@/lib/supabase";
 import theme from "@/styles/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "expo-router";
+import { useNavigation, router } from "expo-router";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import {
   SafeAreaView,
@@ -52,7 +52,9 @@ export default function TechnicianDashboard() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <ImageViewer imgSource={PlaceholderImage} mode="banner" />
+        <View style={{ width: '100%', maxHeight: 260, overflow: 'hidden' }}>
+  <ImageViewer imgSource={PlaceholderImage} mode="banner" />
+</View>
 
         <View style={styles.headerRow}>
           <Text style={styles.welcome}>Welcome back office folks!</Text>
@@ -80,13 +82,24 @@ export default function TechnicianDashboard() {
             </TouchableOpacity>
           </View>
         )}
+
+        <View style={styles.block}>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => navigation.navigate("Request Service")}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.primaryButtonText}>Request Service</Text>
+            </TouchableOpacity>
+          </View>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingBottom:25 },
   scroll: { paddingBottom: 40 },
   headerRow: {
     paddingHorizontal: 16,

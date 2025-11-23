@@ -41,13 +41,16 @@ const s = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v) ?? undefined;
 
 /** Fallback formatter: [{material_id:"Valve", qty:2}] -> "2x Valve" (joined by " /n ") */
 function formatMaterialsForDB(
-  rows?: Array<{ material_id?: string | null; qty?: number | null }>
+  rows?: Array<{ material_id?: string | null; qty?: number | null; custom_name?: string | null }>
 ) {
   if (!Array.isArray(rows)) return "";
   return rows
-    .filter(r => (r?.material_id ?? "").toString().trim() && (r?.qty ?? 0) > 0)
-    .map(r => `${r!.qty}x ${String(r!.material_id)}`)
-    .join(" /n ");
+    .filter(r => (r?.qty ?? 0) > 0 && ((r?.material_id ?? "") || (r?.custom_name ?? "")).toString().trim())
+    .map(r => {
+      const label = (r?.custom_name ?? r?.material_id ?? "").toString().trim();
+      return `${r!.qty}x ${label}`;
+    })
+    .join("\n ");
 }
 
 export default function ServiceReport() {
@@ -95,8 +98,14 @@ export default function ServiceReport() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
-  // Materials (structured JSON) + export text
-  const [materials, setMaterials] = useState<Array<{ material_id: string; qty: number }>>([]);
+  // Materials (structured JSON) + export texttype MaterialRow = {
+type MaterialRow = {
+  material_id: string;   // either a catalog value or "__CUSTOM__"
+  qty: number;
+  custom_name?: string;  // used when material_id === "__CUSTOM__"
+};
+
+const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [materialsText, setMaterialsText] = useState<string>(""); // "2x Valve /n 1x Coupling"
 
   // Misc

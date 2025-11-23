@@ -3,6 +3,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import theme from '@/styles/theme';
 
+
 export default function HandlerLayout() {
   return (
     <Tabs
@@ -100,6 +101,18 @@ export default function HandlerLayout() {
       <Tabs.Screen
         name="Parts Request"
         options={{
+          tabBarLabel: 'Parts request',
+          title: 'Parts Request',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'construct' : 'construct-outline'} size={18} color={color} />
+          ),
+        }}
+      />
+
+       <Tabs.Screen
+        name="Request Service"
+        options={{
+          href: null,
           tabBarLabel: 'Parts request',
           title: 'Parts Request',
           tabBarIcon: ({ color, focused }) => (
